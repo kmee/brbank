@@ -119,12 +119,13 @@ class Transporte:
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         timeout_s: float = 30.0,
+        http2: bool = True,
     ) -> None:
         self.banco = banco
         self.conta = conta
         self._base = base_url.rstrip("/")
         self._client = client or httpx.AsyncClient(
-            http2=True,
+            http2=http2,
             timeout=timeout_s,
             verify=ssl_context if ssl_context is not None else True,
         )
@@ -156,8 +157,10 @@ class Transporte:
         escopo: str | None = None,
         json: Any = None,
         cabecalhos: Mapping[str, str] | None = None,
+        base_url: str | None = None,
     ) -> httpx.Response:
-        url = f"{self._base}/{caminho.lstrip('/')}"
+        base_da_chamada = (base_url or self._base).rstrip("/")
+        url = f"{base_da_chamada}/{caminho.lstrip('/')}"
         corpo = None
         base = {"Accept": "application/json"}
         if json is not None:

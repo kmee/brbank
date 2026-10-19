@@ -16,12 +16,14 @@ from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
+from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
+from tests.pix_falso import PixFalso
 from tests.sicoob_falso import SicoobFalso
 from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
@@ -100,6 +102,27 @@ def _sicredi(dormir):
     return SicrediAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _pix(nome: str, **extra):
+    def criar(dormir):
+        falso = PixFalso(PERFIS[nome])
+        config = PixBacenConfig(
+            perfil=nome,
+            conta=f"conta-{nome}",
+            chave_pix="chave@kmee.com.br",
+            client_id="id",
+            client_secret="segredo",
+            **extra,
+        )
+        return PixBacenAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+    return criar
+
+
+def _webhook_pix(id_banco, situacao):
+    pix = {"endToEndId": "E1", "txid": id_banco, "valor": "150.00"}
+    return json.dumps({"pix": [pix]}).encode()
+
+
 FABRICAS = [
     Fabrica(
         nome="bb",
@@ -134,6 +157,19 @@ FABRICAS = [
         webhook=lambda id_banco, situacao: json.dumps(
             {"nossoNumero": id_banco, "movimento": "LIQUIDACAO_PIX"}
         ).encode(),
+    ),
+    *(
+        Fabrica(
+            nome=f"pix_{nome}",
+            criar=_pix(nome, **extra),
+            liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+            webhook=_webhook_pix,
+        )
+        for nome, extra in (
+            ("inter", {}),
+            ("sicoob", {}),
+            ("bb", {"app_key": "k1"}),
+        )
     ),
 ]
 

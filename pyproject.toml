@@ -22,6 +22,7 @@ inter = "brbank.adapters.inter:InterAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
 sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 sicredi = "brbank.adapters.sicredi:SicrediAdapter"
+pix_bacen = "brbank.adapters.pix_bacen:PixBacenAdapter"
 
 [dependency-groups]
 dev = [
