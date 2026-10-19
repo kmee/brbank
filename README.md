@@ -48,6 +48,11 @@ numero, registra, consulta, baixa e envia instrucao (prorrogacao, abatimento, pr
 Sem PDF e sem webhook declarados. **`validado_sandbox = False`**: contrato montado de
 documentacao de terceiros, nunca executado contra o Sicoob. Duvidas: `docs/sicoob-duvidas.md`.
 
+O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa OAuth2
+`client_credentials` e a chave `gw-dev-app-key` em query param; registra, consulta, baixa,
+prorroga e abate, sem webhook nem PDF. Nasce com `validado_sandbox = False`: ver
+`docs/bb-duvidas.md`.
+
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.
 
