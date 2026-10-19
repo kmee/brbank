@@ -4,7 +4,8 @@ Biblioteca Python assincrona para emitir e acompanhar boletos e cobrancas Pix em
 bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 `l10n_br_payment_boleto` e uma das faces possiveis.
 
-Licenca MIT. Python 3.11+. **Alfa:** nenhum adapter foi validado em sandbox de
+Licenca MIT. Python 3.10+ (o 3.10 e o do Odoo 16.0; `brbank._compat` cobre o que so
+existe no 3.11) e `cryptography>=38`, para conviver com o pyOpenSSL da imagem do Odoo. **Alfa:** nenhum adapter foi validado em sandbox de
 banco (`validado_sandbox = False`); o contrato de cada banco vem da documentacao
 publica e de fontes de terceiros, com as duvidas em `docs/<banco>-duvidas.md`.
 Estado: primeira fatia (modelo canonico, contrato

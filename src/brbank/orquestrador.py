@@ -105,7 +105,9 @@ class Orquestrador:
                         titulo.chave_idempotencia, registrado=registrado
                     )
 
-        async with asyncio.TaskGroup() as grupo:
-            for indice, titulo in enumerate(titulos):
-                grupo.create_task(um(indice, titulo))
+        # `um` nunca levanta Exception: gather tem o mesmo efeito do TaskGroup
+        # (que so existe a partir do Python 3.11).
+        await asyncio.gather(
+            *(um(indice, titulo) for indice, titulo in enumerate(titulos))
+        )
         return [r for r in resultados if r is not None]
