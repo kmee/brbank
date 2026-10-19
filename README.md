@@ -35,11 +35,16 @@ Um banco novo e um pacote que registra o adapter no entry point `brbank.adapters
 [project.entry-points."brbank.adapters"]
 inter = "brbank.adapters.inter:InterAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
+sicredi = "brbank.adapters.sicredi:SicrediAdapter"
 ```
 
 O `PinbankAdapter` usa OAuth2 `password` e payload cifrado AES-CBC (`EnvelopeAesCbc`),
 registra, consulta e baixa por `NossoNumero`, e nao tem webhook nem PDF. Contrato em
 aberto: `docs/pinbank-duvidas.md`.
+
+O `SicrediAdapter` (API de Cobranca v2, OAuth2 `password`) registra, consulta, baixa e
+altera (prorrogacao e abatimento); webhook sem assinatura exige reconsulta. Nasce com
+`validado_sandbox = False`; contrato em aberto: `docs/sicredi-duvidas.md`.
 
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.

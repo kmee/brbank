@@ -14,9 +14,11 @@ import pytest
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
+from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
+from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
 
 @dataclass
@@ -49,6 +51,21 @@ def _pinbank(dormir):
     return PinbankAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _sicredi(dormir):
+    falso = SicrediFalso("/sb")
+    config = SicrediConfig(
+        conta="conta-sc",
+        usuario="123456789",
+        senha="senha",
+        chave_api=CHAVE_API,
+        codigo_beneficiario="12345",
+        cooperativa="0101",
+        posto="02",
+        ambiente="sandbox",
+    )
+    return SicrediAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 FABRICAS = [
     Fabrica(
         nome="inter",
@@ -63,6 +80,14 @@ FABRICAS = [
         criar=_pinbank,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="sicredi",
+        criar=_sicredi,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: json.dumps(
+            {"nossoNumero": id_banco, "movimento": "LIQUIDACAO_PIX"}
+        ).encode(),
     ),
 ]
 
