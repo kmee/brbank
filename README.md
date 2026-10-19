@@ -5,7 +5,7 @@ bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 `l10n_br_payment_boleto` e uma das faces possiveis.
 
 Licenca MIT. Python 3.11+. Estado: primeira fatia (modelo canonico, contrato
-de adapter, transporte, autenticacao, orquestrador e `InterAdapter`).
+de adapter, transporte, autenticacao, orquestrador, `InterAdapter` e `PinbankAdapter`).
 
 ## Uso
 
@@ -34,7 +34,12 @@ Um banco novo e um pacote que registra o adapter no entry point `brbank.adapters
 ```toml
 [project.entry-points."brbank.adapters"]
 inter = "brbank.adapters.inter:InterAdapter"
+pinbank = "brbank.adapters.pinbank:PinbankAdapter"
 ```
+
+O `PinbankAdapter` usa OAuth2 `password` e payload cifrado AES-CBC (`EnvelopeAesCbc`),
+registra, consulta e baixa por `NossoNumero`, e nao tem webhook nem PDF. Contrato em
+aberto: `docs/pinbank-duvidas.md`.
 
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.

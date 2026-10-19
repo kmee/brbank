@@ -13,8 +13,10 @@ import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.inter import InterAdapter, InterConfig
+from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
+from tests.pinbank_falso import SENHA, PinbankFalso
 
 
 @dataclass
@@ -33,6 +35,20 @@ def _inter(dormir):
     return InterAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _pinbank(dormir):
+    falso = PinbankFalso()
+    config = PinbankConfig(
+        conta="conta-pb",
+        usuario="user",
+        senha=SENHA,
+        codigo_canal=10,
+        codigo_cliente=1000,
+        origem_requisicao="7",
+        ambiente="sandbox",
+    )
+    return PinbankAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 FABRICAS = [
     Fabrica(
         nome="inter",
@@ -41,6 +57,12 @@ FABRICAS = [
         webhook=lambda id_banco, situacao: json.dumps(
             [{"codigoSolicitacao": id_banco, "situacao": situacao}]
         ).encode(),
+    ),
+    Fabrica(
+        nome="pinbank",
+        criar=_pinbank,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
     ),
 ]
 

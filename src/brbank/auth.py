@@ -5,6 +5,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -30,12 +31,13 @@ class _Token:
         return "_Token(***)"
 
 
-class OAuth2ClientCredentials(Autenticador):
-    """OAuth2 `client_credentials`.
+class _OAuth2Cacheado(Autenticador):
+    """Base do OAuth2 com cache de token por (conta, escopo) e lock.
 
     O token e emitido por escopo e por conta: guardar um so token para tudo
     faz uma leitura reaproveitar o token de escrita de outra conta.
     `escopos` traduz a chave logica usada pelo adapter para o escopo OAuth.
+    Subclasses definem so o formulario do pedido (`_formulario`).
     """
 
     def __init__(
@@ -43,16 +45,12 @@ class OAuth2ClientCredentials(Autenticador):
         *,
         conta: str,
         url_token: str,
-        client_id: str,
-        client_secret: str,
         escopos: Mapping[str, str] | None = None,
         margem_s: float = 60.0,
         relogio: Callable[[], float] = time.monotonic,
     ) -> None:
         self.conta = conta
         self._url_token = url_token
-        self._client_id = client_id
-        self._client_secret = client_secret
         self._escopos = dict(escopos or {})
         self._margem = margem_s
         self._relogio = relogio
@@ -60,7 +58,11 @@ class OAuth2ClientCredentials(Autenticador):
         self._locks: dict[tuple[str, str | None], asyncio.Lock] = {}
 
     def __repr__(self) -> str:
-        return f"OAuth2ClientCredentials(conta={self.conta!r})"
+        return f"{type(self).__name__}(conta={self.conta!r})"
+
+    @abstractmethod
+    def _formulario(self) -> dict[str, str]:
+        """Campos do pedido de token, sem o escopo."""
 
     async def cabecalhos(
         self, escopo: str | None, client: httpx.AsyncClient
@@ -86,11 +88,7 @@ class OAuth2ClientCredentials(Autenticador):
             return novo.valor
 
     async def _pedir(self, escopo: str | None, client: httpx.AsyncClient) -> _Token:
-        dados = {
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-            "grant_type": "client_credentials",
-        }
+        dados = self._formulario()
         if escopo is not None:
             dados["scope"] = self._escopos.get(escopo, escopo)
         try:
@@ -118,6 +116,39 @@ class OAuth2ClientCredentials(Autenticador):
             raise Validacao(
                 "resposta de token sem access_token", status_http=resp.status_code
             ) from exc
-        duracao = int(corpo.get("expires_in") or 3600)
+        # O PinBank devolve `expire_in` (sem o s); os demais, `expires_in`.
+        duracao = int(corpo.get("expires_in") or corpo.get("expire_in") or 3600)
         vida = max(duracao - self._margem, self._margem)
         return _Token(valor, self._relogio() + vida)
+
+
+class OAuth2ClientCredentials(_OAuth2Cacheado):
+    """OAuth2 `client_credentials`."""
+
+    def __init__(self, *, client_id: str, client_secret: str, **comum: Any) -> None:
+        super().__init__(**comum)
+        self._client_id = client_id
+        self._client_secret = client_secret
+
+    def _formulario(self) -> dict[str, str]:
+        return {
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+            "grant_type": "client_credentials",
+        }
+
+
+class OAuth2Password(_OAuth2Cacheado):
+    """OAuth2 `password` (usuario e senha), como o PinBank."""
+
+    def __init__(self, *, usuario: str, senha: str, **comum: Any) -> None:
+        super().__init__(**comum)
+        self._usuario = usuario
+        self._senha = senha
+
+    def _formulario(self) -> dict[str, str]:
+        return {
+            "username": self._usuario,
+            "password": self._senha,
+            "grant_type": "password",
+        }
