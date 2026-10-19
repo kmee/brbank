@@ -41,6 +41,11 @@ O `PinbankAdapter` usa OAuth2 `password` e payload cifrado AES-CBC (`EnvelopeAes
 registra, consulta e baixa por `NossoNumero`, e nao tem webhook nem PDF. Contrato em
 aberto: `docs/pinbank-duvidas.md`.
 
+O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa OAuth2
+`client_credentials` e a chave `gw-dev-app-key` em query param; registra, consulta, baixa,
+prorroga e abate, sem webhook nem PDF. Nasce com `validado_sandbox = False`: ver
+`docs/bb-duvidas.md`.
+
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.
 

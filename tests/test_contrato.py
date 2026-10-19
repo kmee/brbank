@@ -4,6 +4,7 @@ Todo adapter entra por uma fabrica em `FABRICAS`. Os passos que dependem de
 capacidade sao pulados quando o adapter nao a declara.
 """
 
+import itertools
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,8 +13,10 @@ from typing import Any
 import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
+from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
+from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
@@ -49,7 +52,30 @@ def _pinbank(dormir):
     return PinbankAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _bb(dormir):
+    falso = BBFalso()
+    sequencia = itertools.count(1)
+    config = BBConfig(
+        conta="conta-bb",
+        client_id="id",
+        client_secret="segredo",
+        chave_desenvolvedor=CHAVE_DEV,
+        convenio="1234567",
+        carteira=17,
+        variacao_carteira=35,
+        ambiente="sandbox",
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return BancoDoBrasilAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 FABRICAS = [
+    Fabrica(
+        nome="bb",
+        criar=_bb,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
     Fabrica(
         nome="inter",
         criar=_inter,

@@ -64,6 +64,10 @@ class _OAuth2Cacheado(Autenticador):
     def _formulario(self) -> dict[str, str]:
         """Campos do pedido de token, sem o escopo."""
 
+    def _cabecalhos_pedido(self) -> dict[str, str]:
+        """Cabecalhos do pedido de token (ex.: Basic). Vazio por padrao."""
+        return {}
+
     async def cabecalhos(
         self, escopo: str | None, client: httpx.AsyncClient
     ) -> dict[str, str]:
@@ -92,7 +96,9 @@ class _OAuth2Cacheado(Autenticador):
         if escopo is not None:
             dados["scope"] = self._escopos.get(escopo, escopo)
         try:
-            resp = await client.post(self._url_token, data=dados)
+            resp = await client.post(
+                self._url_token, data=dados, headers=self._cabecalhos_pedido()
+            )
         except httpx.TransportError as exc:
             raise Indisponivel(
                 f"erro de transporte ao obter token: {type(exc).__name__}"

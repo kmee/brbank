@@ -35,6 +35,7 @@ _CHAVES_SENSIVEIS = frozenset(
         "pdf",
         "pdfbase64",
         "pixcopiaecola",
+        "emv",
         "accesstoken",
         "token",
         "clientsecret",
