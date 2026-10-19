@@ -4,7 +4,7 @@ Biblioteca Python assincrona para emitir e acompanhar boletos e cobrancas Pix em
 bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 `l10n_br_payment_boleto` e uma das faces possiveis.
 
-Licenca AGPL-3. Python 3.11+. Estado: primeira fatia (modelo canonico, contrato
+Licenca MIT. Python 3.11+. Estado: primeira fatia (modelo canonico, contrato
 de adapter, transporte, autenticacao, orquestrador e `InterAdapter`).
 
 ## Uso
