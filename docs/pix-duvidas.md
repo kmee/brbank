@@ -39,7 +39,7 @@ O que a leitura nao esclarece ficou de fora ou recusado, nao inventado.
    `metodo_criar_sandbox`). `POST /cob` com txid gerado pelo banco nao e usado.
 5. **BB API v1.** So a v2 tem perfil. A v1 (`api.bb.com.br/pix/v1`) tem `/cobqrcode`
    no sandbox e delimitador `/` antes da query; nao implementado. Confirmar qual
-   versao os clientes KMEE usam.
+   versao usar.
 6. **Santander pre-producao e sandbox.** Existe host de pre-producao
    (`trust-pix-h.santander.com.br`), sem perfil. O sandbox devolve JSON fora do padrao
    (lista `cobs[0]`/`pix[0]`); o ACBr corrige, o adapter nao.

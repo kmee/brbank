@@ -4,17 +4,32 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brbank"
-version = "0.1.0"
+version = "0.0.1"
 description = "Cobranca bancaria unificada (boleto e Pix) para bancos brasileiros, independente do Odoo"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "KMEE", email = "info@kmee.com.br" }]
+keywords = ["boleto", "pix", "cobranca", "banco", "brasil", "asyncio"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+]
 dependencies = [
     "pydantic>=2.6",
     "httpx[http2]>=0.27",
     "cryptography>=50.0.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kmee/brbank"
+Issues = "https://github.com/kmee/brbank/issues"
 
 [project.entry-points."brbank.adapters"]
 bb = "brbank.adapters.bb:BancoDoBrasilAdapter"

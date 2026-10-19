@@ -4,7 +4,10 @@ Biblioteca Python assincrona para emitir e acompanhar boletos e cobrancas Pix em
 bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 `l10n_br_payment_boleto` e uma das faces possiveis.
 
-Licenca MIT. Python 3.11+. Estado: primeira fatia (modelo canonico, contrato
+Licenca MIT. Python 3.11+. **Alfa:** nenhum adapter foi validado em sandbox de
+banco (`validado_sandbox = False`); o contrato de cada banco vem da documentacao
+publica e de fontes de terceiros, com as duvidas em `docs/<banco>-duvidas.md`.
+Estado: primeira fatia (modelo canonico, contrato
 de adapter, transporte, autenticacao, orquestrador, `InterAdapter` e `PinbankAdapter` e `PixBacenAdapter`).
 
 ## Uso
@@ -92,5 +95,3 @@ adapter = PixBacenAdapter(config)
 - Retry so para 429, 5xx e erro de transporte. Status desconhecido no banco
   levanta erro, nunca vira "pago".
 - Webhook gera `EventoCanonico` e nao confirma nada: reconsulte antes de liquidar.
-
-Requisitos do produto: PRD "brbank cobranca bancaria unificada e integracao Odoo".
