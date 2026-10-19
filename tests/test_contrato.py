@@ -14,9 +14,11 @@ import pytest
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
+from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
+from tests.sicoob_falso import SicoobFalso
 
 
 @dataclass
@@ -49,6 +51,18 @@ def _pinbank(dormir):
     return PinbankAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _sicoob(dormir):
+    falso = SicoobFalso()
+    config = SicoobConfig(
+        conta="conta-sc",
+        client_id="cid",
+        numero_cliente=25546454,
+        numero_conta_corrente="123456",
+        codigo_especie_documento=2,
+    )
+    return SicoobAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 FABRICAS = [
     Fabrica(
         nome="inter",
@@ -61,6 +75,12 @@ FABRICAS = [
     Fabrica(
         nome="pinbank",
         criar=_pinbank,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="sicoob",
+        criar=_sicoob,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
     ),

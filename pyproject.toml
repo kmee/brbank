@@ -19,6 +19,7 @@ dependencies = [
 [project.entry-points."brbank.adapters"]
 inter = "brbank.adapters.inter:InterAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
+sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 
 [dependency-groups]
 dev = [

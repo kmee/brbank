@@ -35,11 +35,18 @@ Um banco novo e um pacote que registra o adapter no entry point `brbank.adapters
 [project.entry-points."brbank.adapters"]
 inter = "brbank.adapters.inter:InterAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
+sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 ```
 
 O `PinbankAdapter` usa OAuth2 `password` e payload cifrado AES-CBC (`EnvelopeAesCbc`),
 registra, consulta e baixa por `NossoNumero`, e nao tem webhook nem PDF. Contrato em
 aberto: `docs/pinbank-duvidas.md`.
+
+O `SicoobAdapter` (Cobranca Bancaria v3, boleto hibrido) usa OAuth2 `client_credentials`
+sem `client_secret` (a identidade e o mTLS), header `client_id`, id do titulo = nosso
+numero, registra, consulta, baixa e envia instrucao (prorrogacao, abatimento, protesto).
+Sem PDF e sem webhook declarados. **`validado_sandbox = False`**: contrato montado de
+documentacao de terceiros, nunca executado contra o Sicoob. Duvidas: `docs/sicoob-duvidas.md`.
 
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.
