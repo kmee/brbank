@@ -8,7 +8,36 @@ Licenca MIT. Python 3.11+. **Alfa:** nenhum adapter foi validado em sandbox de
 banco (`validado_sandbox = False`); o contrato de cada banco vem da documentacao
 publica e de fontes de terceiros, com as duvidas em `docs/<banco>-duvidas.md`.
 Estado: primeira fatia (modelo canonico, contrato
-de adapter, transporte, autenticacao, orquestrador, `InterAdapter` e `PinbankAdapter` e `PixBacenAdapter`).
+de adapter, transporte, autenticacao, orquestrador e os adapters da tabela abaixo).
+
+## Bancos suportados
+
+Todos os adapters passam pela mesma suite de contrato (registrar, consultar, baixar) contra um
+servidor falso. "Origem" diz de onde veio o contrato: **Odoo** = portado de um modulo que ja roda
+em producao (o adapter da biblioteca ainda nao rodou contra o banco), **ACBr** = levantado por leitura
+do ACBr, usado so como documentacao, e de fontes de terceiros.
+
+| Banco | Adapter (entry point) | Produto | Capacidades declaradas | Origem |
+| --- | --- | --- | --- | --- |
+| Inter (077) | `inter` | Cobranca v3, boleto hibrido | hibrido, so hibrido, baixa, PDF, webhook | Odoo |
+| PinBank | `pinbank` | Boleto, envelope AES-CBC | baixa | Odoo |
+| Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa | ACBr |
+| Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | ACBr |
+| Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | ACBr |
+
+Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
+(host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
+Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
+
+Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Safra, Banrisul,
+Unicred, BTG e C6 (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
+variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter` e um entry point em
+`brbank.adapters`; veja `docs/` para o que cada banco ainda deixa em aberto.
+
+**Nenhum adapter da biblioteca foi validado em sandbox.** Sicoob, Sicredi, Banco do Brasil e os
+perfis Pix trazem `validado_sandbox = False` no codigo e so passam a `True` depois de rodar contra o
+ambiente real do banco. Inter e PinBank herdam a logica de modulos Odoo em producao, mas o adapter
+da biblioteca tambem ainda nao rodou contra o banco.
 
 ## Uso
 
