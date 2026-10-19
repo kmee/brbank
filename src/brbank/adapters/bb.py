@@ -146,10 +146,12 @@ class _AuthBB(OAuth2ClientCredentials):
         return {"grant_type": dados["grant_type"]}
 
     def _cabecalhos_pedido(self) -> dict[str, str]:
+        cabecalhos = super()._cabecalhos_pedido()
         if self._no_corpo:
-            return {}
+            return cabecalhos
         bruto = f"{self._client_id}:{self._client_secret}".encode()
-        return {"Authorization": "Basic " + base64.b64encode(bruto).decode()}
+        basic = "Basic " + base64.b64encode(bruto).decode()
+        return {**cabecalhos, "Authorization": basic}
 
 
 def _numero(valor: Decimal) -> float:

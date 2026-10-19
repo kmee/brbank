@@ -38,6 +38,7 @@ class _OAuth2Cacheado(Autenticador):
     faz uma leitura reaproveitar o token de escrita de outra conta.
     `escopos` traduz a chave logica usada pelo adapter para o escopo OAuth.
     Subclasses definem so o formulario do pedido (`_formulario`).
+    `cabecalhos_token` vai so no pedido de token (ex.: `x-api-key` do Sicredi).
     """
 
     def __init__(
@@ -48,8 +49,10 @@ class _OAuth2Cacheado(Autenticador):
         escopos: Mapping[str, str] | None = None,
         margem_s: float = 60.0,
         relogio: Callable[[], float] = time.monotonic,
+        cabecalhos_token: Mapping[str, str] | None = None,
     ) -> None:
         self.conta = conta
+        self._cabecalhos_token = dict(cabecalhos_token or {})
         self._url_token = url_token
         self._escopos = dict(escopos or {})
         self._margem = margem_s
@@ -65,8 +68,8 @@ class _OAuth2Cacheado(Autenticador):
         """Campos do pedido de token, sem o escopo."""
 
     def _cabecalhos_pedido(self) -> dict[str, str]:
-        """Cabecalhos do pedido de token (ex.: Basic). Vazio por padrao."""
-        return {}
+        """Cabecalhos do pedido de token (ex.: Basic): os de `cabecalhos_token`."""
+        return dict(self._cabecalhos_token)
 
     async def cabecalhos(
         self, escopo: str | None, client: httpx.AsyncClient
@@ -145,7 +148,7 @@ class OAuth2ClientCredentials(_OAuth2Cacheado):
 
 
 class OAuth2Password(_OAuth2Cacheado):
-    """OAuth2 `password` (usuario e senha), como o PinBank."""
+    """OAuth2 `password` (usuario e senha), como o PinBank e o Sicredi."""
 
     def __init__(self, *, usuario: str, senha: str, **comum: Any) -> None:
         super().__init__(**comum)

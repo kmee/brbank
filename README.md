@@ -36,6 +36,8 @@ Um banco novo e um pacote que registra o adapter no entry point `brbank.adapters
 inter = "brbank.adapters.inter:InterAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
 sicoob = "brbank.adapters.sicoob:SicoobAdapter"
+
+sicredi = "brbank.adapters.sicredi:SicrediAdapter"
 ```
 
 O `PinbankAdapter` usa OAuth2 `password` e payload cifrado AES-CBC (`EnvelopeAesCbc`),
@@ -52,6 +54,10 @@ O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa
 `client_credentials` e a chave `gw-dev-app-key` em query param; registra, consulta, baixa,
 prorroga e abate, sem webhook nem PDF. Nasce com `validado_sandbox = False`: ver
 `docs/bb-duvidas.md`.
+
+O `SicrediAdapter` (API de Cobranca v2, OAuth2 `password`) registra, consulta, baixa e
+altera (prorrogacao e abatimento); webhook sem assinatura exige reconsulta. Nasce com
+`validado_sandbox = False`; contrato em aberto: `docs/sicredi-duvidas.md`.
 
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.
