@@ -5,7 +5,7 @@ bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 `l10n_br_payment_boleto` e uma das faces possiveis.
 
 Licenca MIT. Python 3.11+. Estado: primeira fatia (modelo canonico, contrato
-de adapter, transporte, autenticacao, orquestrador, `InterAdapter` e `PinbankAdapter`).
+de adapter, transporte, autenticacao, orquestrador, `InterAdapter` e `PinbankAdapter` e `PixBacenAdapter`).
 
 ## Uso
 
@@ -35,11 +35,32 @@ Um banco novo e um pacote que registra o adapter no entry point `brbank.adapters
 [project.entry-points."brbank.adapters"]
 inter = "brbank.adapters.inter:InterAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
+pix_bacen = "brbank.adapters.pix_bacen:PixBacenAdapter"
 ```
 
 O `PinbankAdapter` usa OAuth2 `password` e payload cifrado AES-CBC (`EnvelopeAesCbc`),
 registra, consulta e baixa por `NossoNumero`, e nao tem webhook nem PDF. Contrato em
 aberto: `docs/pinbank-duvidas.md`.
+
+O `PixBacenAdapter` fala a API Pix do BACEN (`/cob`, `/cobv`, `/webhook`, devolucao) e
+muda de banco por `PerfilPsp`: `inter`, `bb`, `sicoob`, `sicredi`, `itau`, `bradesco`,
+`santander` e `efi` (BNB sem perfil). Todos com `validado_sandbox = False` ate rodar no
+sandbox. O `txid` vem da chave de idempotencia, o copia-e-cola e o `txid` chegam em
+`TituloRegistrado`, e `CONCLUIDA` sem Pix na consulta nao liquida. Duvidas e quirks:
+`docs/pix-duvidas.md`.
+
+```python
+config = PixBacenConfig(
+    perfil="sicoob",
+    conta="matriz",
+    chave_pix="...",
+    client_id="...",
+    ambiente="producao",
+    certificado_pem=cert,
+    chave_pem=chave,
+)
+adapter = PixBacenAdapter(config)
+```
 
 `brbank.criar_adapter("inter", config)` resolve pelo nome e
 `adapter.suporta(Capacidade.PDF)` consulta as capacidades em runtime.

@@ -14,9 +14,11 @@ import pytest
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
+from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
+from tests.pix_falso import PixFalso
 
 
 @dataclass
@@ -49,6 +51,27 @@ def _pinbank(dormir):
     return PinbankAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _pix(nome: str, **extra):
+    def criar(dormir):
+        falso = PixFalso(PERFIS[nome])
+        config = PixBacenConfig(
+            perfil=nome,
+            conta=f"conta-{nome}",
+            chave_pix="chave@kmee.com.br",
+            client_id="id",
+            client_secret="segredo",
+            **extra,
+        )
+        return PixBacenAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+    return criar
+
+
+def _webhook_pix(id_banco, situacao):
+    pix = {"endToEndId": "E1", "txid": id_banco, "valor": "150.00"}
+    return json.dumps({"pix": [pix]}).encode()
+
+
 FABRICAS = [
     Fabrica(
         nome="inter",
@@ -63,6 +86,19 @@ FABRICAS = [
         criar=_pinbank,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    *(
+        Fabrica(
+            nome=f"pix_{nome}",
+            criar=_pix(nome, **extra),
+            liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+            webhook=_webhook_pix,
+        )
+        for nome, extra in (
+            ("inter", {}),
+            ("sicoob", {}),
+            ("bb", {"app_key": "k1"}),
+        )
     ),
 ]
 

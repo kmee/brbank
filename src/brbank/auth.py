@@ -1,6 +1,7 @@
 """Autenticacao plugavel (B6) com cache de token por (conta, escopo) e lock."""
 
 import asyncio
+import base64
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
@@ -64,6 +65,10 @@ class _OAuth2Cacheado(Autenticador):
     def _formulario(self) -> dict[str, str]:
         """Campos do pedido de token, sem o escopo."""
 
+    def _argumentos_post(self, dados: dict[str, str]) -> dict[str, Any]:
+        """Como o pedido de token vai ao banco. Padrao: formulario."""
+        return {"data": dados}
+
     async def cabecalhos(
         self, escopo: str | None, client: httpx.AsyncClient
     ) -> dict[str, str]:
@@ -92,7 +97,7 @@ class _OAuth2Cacheado(Autenticador):
         if escopo is not None:
             dados["scope"] = self._escopos.get(escopo, escopo)
         try:
-            resp = await client.post(self._url_token, data=dados)
+            resp = await client.post(self._url_token, **self._argumentos_post(dados))
         except httpx.TransportError as exc:
             raise Indisponivel(
                 f"erro de transporte ao obter token: {type(exc).__name__}"
@@ -152,3 +157,58 @@ class OAuth2Password(_OAuth2Cacheado):
             "password": self._senha,
             "grant_type": "password",
         }
+
+
+class OAuth2ClientCredentialsBasic(_OAuth2Cacheado):
+    """OAuth2 `client_credentials` com `Authorization: Basic` (BB, Sicredi,
+    Bradesco, Efi). `corpo_json` manda o grant em JSON em vez de formulario."""
+
+    def __init__(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+        corpo_json: bool = False,
+        **comum: Any,
+    ) -> None:
+        super().__init__(**comum)
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._corpo_json = corpo_json
+
+    def _formulario(self) -> dict[str, str]:
+        return {"grant_type": "client_credentials"}
+
+    def _argumentos_post(self, dados: dict[str, str]) -> dict[str, Any]:
+        basico = base64.b64encode(
+            f"{self._client_id}:{self._client_secret}".encode()
+        ).decode()
+        argumentos: dict[str, Any] = {"headers": {"Authorization": f"Basic {basico}"}}
+        argumentos["json" if self._corpo_json else "data"] = dados
+        return argumentos
+
+
+class OAuth2ClientCredentialsSemSegredo(_OAuth2Cacheado):
+    """`client_credentials` so com `client_id` (Sicoob: a identidade e o mTLS)."""
+
+    def __init__(self, *, client_id: str, **comum: Any) -> None:
+        super().__init__(**comum)
+        self._client_id = client_id
+
+    def _formulario(self) -> dict[str, str]:
+        return {"client_id": self._client_id, "grant_type": "client_credentials"}
+
+
+class TokenEstatico(Autenticador):
+    """Token fixo, para sandbox que o entrega pronto no portal (Sicoob)."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def __repr__(self) -> str:
+        return "TokenEstatico(***)"
+
+    async def cabecalhos(
+        self, escopo: str | None, client: httpx.AsyncClient
+    ) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._token}"}
