@@ -19,6 +19,7 @@ from brbank.adapters.itau import ItauAdapter, ItauConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
 from brbank.adapters.santander import SantanderAdapter, SantanderConfig
+from brbank.adapters.safra import SafraAdapter, SafraConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from tests.bb_falso import CHAVE_DEV, BBFalso
@@ -28,6 +29,7 @@ from tests.itau_falso import ItauFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
 from tests.pix_falso import PixFalso
 from tests.santander_falso import WORKSPACE, SantanderFalso
+from tests.safra_falso import SafraFalso
 from tests.sicoob_falso import SicoobFalso
 from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
@@ -137,6 +139,21 @@ def _santander(dormir):
         gerar_nosso_numero=lambda _titulo: next(sequencia),
     )
     return SantanderAdapter(config, client=falso.cliente(), dormir=dormir), falso
+def _safra(dormir):
+    falso = SafraFalso()
+    sequencia = itertools.count(1)
+    config = SafraConfig(
+        conta="conta-sf",
+        client_id="cid",
+        usuario="usuario",
+        senha="senha",
+        agencia="0290",
+        conta_corrente="0058604",
+        especie="01",
+        ambiente="sandbox",
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return SafraAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _pix(nome: str, **extra):
@@ -184,6 +201,12 @@ FABRICAS = [
     Fabrica(
         nome="pinbank",
         criar=_pinbank,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="safra",
+        criar=_safra,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
     ),

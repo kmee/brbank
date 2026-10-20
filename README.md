@@ -27,12 +27,13 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | ACBr |
 | Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | ACBr |
 | Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | ACBr |
+| Safra (422) | `safra` | Cobranca v1 (Safra Negocios) | so registro e consulta | ACBr |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
 Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
 
-Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Safra, Banrisul,
+Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Banrisul,
 Unicred, BTG e C6 (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
 variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter` e um entry point em
 `brbank.adapters`; veja `docs/` para o que cada banco ainda deixa em aberto.
