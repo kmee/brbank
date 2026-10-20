@@ -22,6 +22,8 @@ from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.safra import SafraAdapter, SafraConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
+from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
+from tests import unicred_falso
 from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
@@ -154,6 +156,21 @@ def _safra(dormir):
         gerar_nosso_numero=lambda _titulo: next(sequencia),
     )
     return SafraAdapter(config, client=falso.cliente(), dormir=dormir), falso
+def _unicred(dormir):
+    falso = unicred_falso.UnicredFalso("/homolog")
+    config = UnicredConfig(
+        conta="conta-un",
+        api_key=unicred_falso.API_KEY,
+        usuario="usuario",
+        senha="senha",
+        cooperativa="0001",
+        id_beneficiario=unicred_falso.BENEFICIARIO,
+        variacao_carteira=43,
+        ambiente="sandbox",
+        chave_autenticacao_webhook=unicred_falso.CHAVE_AUT,
+        chave_criptografia_webhook=unicred_falso.CHAVE_CRIPTO,
+    )
+    return UnicredAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _pix(nome: str, **extra):
@@ -229,6 +246,12 @@ FABRICAS = [
         criar=_santander,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="unicred",
+        criar=_unicred,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: unicred_falso.webhook_liquidacao(id_banco),
     ),
     *(
         Fabrica(

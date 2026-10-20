@@ -41,6 +41,7 @@ santander = "brbank.adapters.santander:SantanderAdapter"
 safra = "brbank.adapters.safra:SafraAdapter"
 sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 sicredi = "brbank.adapters.sicredi:SicrediAdapter"
+unicred = "brbank.adapters.unicred:UnicredAdapter"
 pix_bacen = "brbank.adapters.pix_bacen:PixBacenAdapter"
 
 [dependency-groups]

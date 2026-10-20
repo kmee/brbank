@@ -28,6 +28,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | ACBr |
 | Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | ACBr |
 | Safra (422) | `safra` | Cobranca v1 (Safra Negocios) | so registro e consulta | ACBr |
+| Unicred (136) | `unicred` | Cobranca v2, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | Portal oficial |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
