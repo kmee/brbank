@@ -16,6 +16,7 @@ from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.c6 import C6Adapter, C6Config
+from brbank.adapters.btg import BtgAdapter, BtgConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.itau import ItauAdapter, ItauConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
@@ -30,6 +31,8 @@ from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.c6_falso import C6Falso
 from tests.conftest import fazer_titulo
+from tests.btg_falso import CLIENT_ID, CLIENT_SECRET, REFRESH_INICIAL, BtgFalso
+from tests.conftest import CNPJ_VALIDO, fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.itau_falso import ItauFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
@@ -148,6 +151,28 @@ def _webhook_c6(id_banco, situacao):
     ).encode()
 
 
+def _btg(dormir):
+    falso = BtgFalso()
+    config = BtgConfig(
+        conta="conta-btg",
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        refresh_token=REFRESH_INICIAL,
+        cnpj_empresa=CNPJ_VALIDO,
+        agencia="50",
+        conta_corrente="0030818500",
+        dias_expiracao=30,
+    )
+    return BtgAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _webhook_btg(id_banco, situacao):
+    dados = {"collectionId": id_banco, "status": "PAID", "amountPaid": 150.0}
+    return json.dumps(
+        {"webhookId": "w-1", "event": "collections.paid", "data": dados}
+    ).encode()
+
+
 def _sicredi(dormir):
     falso = SicrediFalso("/sb")
     config = SicrediConfig(
@@ -248,6 +273,12 @@ FABRICAS = [
         criar=_c6,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=_webhook_c6,
+    ),
+    Fabrica(
+        nome="btg",
+        criar=_btg,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=_webhook_btg,
     ),
     Fabrica(
         nome="inter",
