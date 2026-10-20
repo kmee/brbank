@@ -17,6 +17,7 @@ from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.c6 import C6Adapter, C6Config
 from brbank.adapters.btg import BtgAdapter, BtgConfig
+from brbank.adapters.bradesco import BradescoAdapter, BradescoConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.itau import ItauAdapter, ItauConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
@@ -30,6 +31,7 @@ from tests import unicred_falso
 from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.c6_falso import C6Falso
+from tests.bradesco_falso import BradescoFalso
 from tests.conftest import fazer_titulo
 from tests.btg_falso import CLIENT_ID, CLIENT_SECRET, REFRESH_INICIAL, BtgFalso
 from tests.conftest import CNPJ_VALIDO, fazer_titulo
@@ -171,6 +173,18 @@ def _webhook_btg(id_banco, situacao):
     return json.dumps(
         {"webhookId": "w-1", "event": "collections.paid", "data": dados}
     ).encode()
+def _bradesco(dormir):
+    falso = BradescoFalso()
+    config = BradescoConfig(
+        conta="conta-bradesco",
+        client_id="id",
+        client_secret="segredo",
+        documento_beneficiario="11.222.333/0001-81",
+        agencia="2856",
+        conta_corrente="22654",
+        carteira=9,
+    )
+    return BradescoAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _sicredi(dormir):
@@ -279,6 +293,12 @@ FABRICAS = [
         criar=_btg,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=_webhook_btg,
+    ),
+    Fabrica(
+        nome="bradesco",
+        criar=_bradesco,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
     ),
     Fabrica(
         nome="inter",

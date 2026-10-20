@@ -32,6 +32,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | C6 Bank (336) | `c6` | Bolepix v2, boleto hibrido | hibrido, alteracao, baixa, PDF, webhook | OpenAPI publica do C6 |
 | Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | Doc oficial + ACBr |
 | BTG Pactual (208) | `btg` | BTG Empresas, Banking Collections, bolepix | hibrido, alteracao, baixa, PDF, webhook, emissao assincrona | spec oficial |
+| Bradesco (237) | `bradesco` | Cobranca (portal Developers, sem QR Code) | baixa | ACBr e terceiros |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
@@ -98,6 +99,12 @@ O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa
 `client_credentials` e a chave `gw-dev-app-key` em query param; registra, consulta, baixa,
 prorroga e abate, sem webhook nem PDF. Nasce com `validado_sandbox = False`: ver
 `docs/bb-duvidas.md`.
+
+O `BradescoAdapter` (`bradesco`, API Cobranca convencional do portal Bradesco Developers)
+usa OAuth2 `client_credentials` sobre mTLS (o fluxo legado com JWT nao e coberto); registra,
+consulta e baixa pelo nosso numero gerado pelo banco. Sem alteracao, PDF nem webhook
+declarados; desconto e abatimento no registro sao recusados ate haver contrato. Nasce com
+`validado_sandbox = False`: ver `docs/bradesco-duvidas.md`.
 
 O `SicrediAdapter` (API de Cobranca v2, OAuth2 `password`) registra, consulta, baixa e
 altera (prorrogacao e abatimento); webhook sem assinatura exige reconsulta. Nasce com
