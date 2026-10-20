@@ -14,6 +14,7 @@ import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
+from brbank.adapters.c6 import C6Adapter, C6Config
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.itau import ItauAdapter, ItauConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
@@ -25,6 +26,7 @@ from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
 from tests import unicred_falso
 from tests.bb_falso import CHAVE_DEV, BBFalso
+from tests.c6_falso import C6Falso
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.itau_falso import ItauFalso
@@ -110,6 +112,25 @@ def _bb(dormir):
         gerar_nosso_numero=lambda _titulo: next(sequencia),
     )
     return BancoDoBrasilAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _c6(dormir):
+    falso = C6Falso()
+    config = C6Config(
+        conta="conta-c6",
+        client_id="id",
+        client_secret="segredo",
+        chave_pix="123e4567-e89b-12d3-a456-426614174000",
+        ambiente="sandbox",
+    )
+    return C6Adapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _webhook_c6(id_banco, situacao):
+    info = {"external_reference_id": id_banco, "amount": "150.00"}
+    return json.dumps(
+        {"service": "BANK_SLIP_PIX", "status": "PAID", "information": json.dumps(info)}
+    ).encode()
 
 
 def _sicredi(dormir):
@@ -200,6 +221,12 @@ FABRICAS = [
         criar=_bb,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="c6",
+        criar=_c6,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=_webhook_c6,
     ),
     Fabrica(
         nome="inter",

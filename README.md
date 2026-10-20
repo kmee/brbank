@@ -29,6 +29,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | ACBr |
 | Safra (422) | `safra` | Cobranca v1 (Safra Negocios) | so registro e consulta | ACBr |
 | Unicred (136) | `unicred` | Cobranca v2, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | Portal oficial |
+| C6 Bank (336) | `c6` | Bolepix v2, boleto hibrido | hibrido, alteracao, baixa, PDF, webhook | OpenAPI publica do C6 |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
@@ -36,6 +37,8 @@ Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
 
 Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Banrisul,
 Unicred, BTG e C6 (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
+Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Safra, Banrisul,
+Unicred e BTG (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
 variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter` e um entry point em
 `brbank.adapters`; veja `docs/` para o que cada banco ainda deixa em aberto.
 
