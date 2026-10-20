@@ -35,6 +35,7 @@ Issues = "https://github.com/kmee/brbank/issues"
 [project.entry-points."brbank.adapters"]
 bb = "brbank.adapters.bb:BancoDoBrasilAdapter"
 inter = "brbank.adapters.inter:InterAdapter"
+itau = "brbank.adapters.itau:ItauAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
 sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 sicredi = "brbank.adapters.sicredi:SicrediAdapter"
