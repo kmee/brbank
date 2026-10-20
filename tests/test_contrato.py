@@ -17,6 +17,7 @@ from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
+from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from tests.bb_falso import CHAVE_DEV, BBFalso
@@ -24,6 +25,7 @@ from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
 from tests.pix_falso import PixFalso
+from tests.santander_falso import WORKSPACE, SantanderFalso
 from tests.sicoob_falso import SicoobFalso
 from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
@@ -102,6 +104,22 @@ def _sicredi(dormir):
     return SicrediAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _santander(dormir):
+    falso = SantanderFalso()
+    sequencia = itertools.count(1)
+    config = SantanderConfig(
+        conta="conta-st",
+        client_id="cid",
+        client_secret="segredo",
+        workspace_id=WORKSPACE,
+        convenio="3567206",
+        chave_pix="11222333000181",
+        tipo_chave_pix="CNPJ",
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return SantanderAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _pix(nome: str, **extra):
     def criar(dormir):
         falso = PixFalso(PERFIS[nome])
@@ -157,6 +175,12 @@ FABRICAS = [
         webhook=lambda id_banco, situacao: json.dumps(
             {"nossoNumero": id_banco, "movimento": "LIQUIDACAO_PIX"}
         ).encode(),
+    ),
+    Fabrica(
+        nome="santander",
+        criar=_santander,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
     ),
     *(
         Fabrica(
