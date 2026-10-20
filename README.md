@@ -5,9 +5,10 @@ bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 `l10n_br_payment_boleto` e uma das faces possiveis.
 
 Licenca MIT. Python 3.10+ (o 3.10 e o do Odoo 16.0; `brbank._compat` cobre o que so
-existe no 3.11) e `cryptography>=38`, para conviver com o pyOpenSSL da imagem do Odoo. **Alfa:** nenhum adapter foi validado em sandbox de
-banco (`validado_sandbox = False`); o contrato de cada banco vem da documentacao
-publica e de fontes de terceiros, com as duvidas em `docs/<banco>-duvidas.md`.
+existe no 3.11) e `cryptography>=38`, para conviver com o pyOpenSSL da imagem do Odoo. **Alfa:** so o
+Sicoob (boleto e perfil Pix) foi validado em sandbox de banco (`validado_sandbox = True`); os
+demais trazem `False` e o contrato vem da documentacao publica e de fontes de terceiros, com as
+duvidas em `docs/<banco>-duvidas.md`.
 Estado: primeira fatia (modelo canonico, contrato
 de adapter, transporte, autenticacao, orquestrador e os adapters da tabela abaixo).
 
@@ -17,7 +18,8 @@ Todos os adapters passam pela mesma suite de contrato (registrar, consultar, bai
 servidor falso. "Fonte do contrato" diz de onde veio o comportamento implementado: **Odoo** =
 portado de um modulo que ja roda em producao; **oficial** = especificacao publicada pelo banco
 (OpenAPI, WSDL ou portal); **publica e terceiros** = documentacao publica, integracoes e SDKs de
-terceiros, porque o portal do banco exige login. O detalhe e as duvidas de cada banco estao em
+terceiros, porque o portal do banco exige login; **sandbox e swagger** = conferido no sandbox real
+do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 `docs/<banco>-duvidas.md`.
 
 | Banco | Adapter (entry point) | Produto | Capacidades declaradas | Fonte do contrato |
@@ -33,7 +35,7 @@ terceiros, porque o portal do banco exige login. O detalhe e as duvidas de cada 
 | Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | publica e terceiros |
 | Safra (422) | `safra` | Cobranca v1 | so registro e consulta | publica e terceiros |
 | Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | publica e terceiros |
-| Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa | publica e terceiros |
+| Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa, PDF | sandbox e swagger |
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | publica e terceiros |
 | Unicred (136) | `unicred` | Cobranca, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | oficial |
 
@@ -45,10 +47,27 @@ Fora desta lista por enquanto: BNB, gateways como Mercado Pago, PagBank e Stone 
 boleto hibrido do Bradesco e a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
 
-**Nenhum adapter foi validado em sandbox.** Todos trazem `validado_sandbox = False` (os perfis Pix
-tambem) e so passam a `True` depois de rodar contra o ambiente real do banco. Inter e PinBank herdam
-a logica de modulos Odoo em producao, mas o adapter da biblioteca tambem ainda nao rodou contra o
-banco.
+**Validacao em sandbox.** Um adapter (ou perfil Pix) so passa a `validado_sandbox = True` depois
+de rodar o ciclo contra o ambiente real do banco. Hoje: `sicoob` e o perfil Pix `sicoob`
+(2026-10-20). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em
+producao, mas o adapter da biblioteca ainda nao rodou contra o banco.
+
+Os testes contra sandbox ficam em `tests/integracao/`, marcados `sandbox`, fora da execucao padrao
+e pulados sem credencial. A credencial vem so de variavel de ambiente, nunca do repo:
+
+```bash
+BRBANK_SICOOB_SANDBOX_CLIENT_ID=... BRBANK_SICOOB_SANDBOX_TOKEN=... \
+    uv run pytest -m sandbox tests/integracao
+```
+
+So entra aqui sandbox com credencial de teste publica (publicada pelo banco para todos). Em
+2026-10-20 so o Sicoob tinha: Client ID e token fixos na pagina Sandbox do portal do Sicoob,
+para boleto e Pix. Banrisul, BB, BTG, C6, Inter, Itau, Santander, Sicredi e Efi exigem cadastro
+de aplicacao ou conta (o sandbox responde 401/403 sem credencial) e ficam para quando houver
+credencial de cliente. O sandbox do Sicoob valida a requisicao contra o swagger, mas responde
+exemplos fixos (boleto) ou aleatorios (Pix): prova rota, corpo, cabecalhos e codigos HTTP, nao a
+transicao de estado nem o OAuth/mTLS de producao. Detalhe em `docs/sicoob-duvidas.md` e
+`docs/pix-duvidas.md`.
 
 ## Uso
 
@@ -91,9 +110,10 @@ aberto: `docs/pinbank-duvidas.md`.
 
 O `SicoobAdapter` (Cobranca Bancaria v3, boleto hibrido) usa OAuth2 `client_credentials`
 sem `client_secret` (a identidade e o mTLS), header `client_id`, id do titulo = nosso
-numero, registra, consulta, baixa e envia instrucao (prorrogacao, abatimento, protesto).
-Sem PDF e sem webhook declarados. **`validado_sandbox = False`**: contrato montado de
-documentacao de terceiros, nunca executado contra o Sicoob. Duvidas: `docs/sicoob-duvidas.md`.
+numero, registra, consulta, baixa, envia instrucao (prorrogacao, abatimento, protesto) e
+baixa o PDF da segunda via. Sem webhook. A especie do documento e a sigla (`"DM"`, `"DS"`...),
+nao numero. **`validado_sandbox = True`** (2026-10-20, sandbox publico do Sicoob); OAuth/mTLS
+e escopos de producao seguem sem prova. Duvidas: `docs/sicoob-duvidas.md`.
 
 O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa OAuth2
 `client_credentials` e a chave `gw-dev-app-key` em query param; registra, consulta, baixa,
@@ -112,8 +132,9 @@ altera (prorrogacao e abatimento); webhook sem assinatura exige reconsulta. Nasc
 
 O `PixBacenAdapter` fala a API Pix do BACEN (`/cob`, `/cobv`, `/webhook`, devolucao) e
 muda de banco por `PerfilPsp`: `inter`, `bb`, `sicoob`, `sicredi`, `itau`, `bradesco`,
-`santander` e `efi` (BNB sem perfil). Todos com `validado_sandbox = False` ate rodar no
-sandbox. O `txid` vem da chave de idempotencia, o copia-e-cola e o `txid` chegam em
+`santander` e `efi` (BNB sem perfil). So o perfil `sicoob` tem `validado_sandbox = True`; os
+demais esperam o sandbox. O `txid` vem da chave de idempotencia (e e sempre o `id_banco`, mesmo
+que o PSP devolva outro), o copia-e-cola e o `txid` chegam em
 `TituloRegistrado`, e `CONCLUIDA` sem Pix na consulta nao liquida. Duvidas e quirks:
 `docs/pix-duvidas.md`.
 

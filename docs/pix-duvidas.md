@@ -3,9 +3,47 @@
 Fonte do contrato: OpenAPI oficial da API Pix do BACEN (/cob, /cobv, /webhook,
 /pix/{e2eid}/devolucao), conhecido do padrao publico. O comportamento por PSP
 (host, URL do token, escopos, headers, quirks) foi lido nos fontes do ACBr
-(`ACBrPIXCD`, licenca LGPL) como documentacao, sem portar codigo. Nenhum perfil
-foi testado contra sandbox real: todos nascem com `validado_sandbox = False`.
+(`ACBrPIXCD`, licenca LGPL) como documentacao, sem portar codigo. Perfil nasce com
+`validado_sandbox = False`; so o `sicoob` passou a `True` (2026-10-20, secao abaixo).
 O que a leitura nao esclarece ficou de fora ou recusado, nao inventado.
+
+## Validacao no sandbox do Sicoob (2026-10-20)
+
+Sandbox publico `https://sandbox.sicoob.com.br/sicoob/sandbox/pix/api/v2` com o Client ID e o
+Access token (Bearer) fixos da pagina Sandbox do portal do Sicoob (iguais para todos, so de
+teste; lidos de `BRBANK_SICOOB_SANDBOX_CLIENT_ID` e `BRBANK_SICOOB_SANDBOX_TOKEN`, nunca no
+repo). Teste: `tests/integracao/test_sicoob_sandbox.py`, com o adapter:
+
+| Chamada | Resultado real |
+| --- | --- |
+| `PUT /cob/{txid}` e `PUT /cobv/{txid}` | 201 com a cobranca (alias `brcode` confirmado) |
+| `GET /cob/{txid}`, `GET /cobv/{txid}` | 200 |
+| `PATCH /cob(v)/{txid}` `{"status": "REMOVIDA_PELO_USUARIO_RECEBEDOR"}` | 200 com a cobranca |
+| `PUT /webhook/{chave}`, `GET`, `DELETE` | 200, 200, 204 |
+
+O mock **valida a requisicao** (txid fora do padrao vira 400 de gateway; corpo fora do schema
+vira 400 `application/problem+json` do BACEN com `violacoes`) mas **responde dados
+aleatorios** no formato do BACEN: `txid` diferente do pedido, `status` sorteado entre ATIVA,
+CONCLUIDA e as REMOVIDA, valores e textos lorem ipsum. Logo ficam provados rota, metodo,
+cabecalho `client_id`, corpo e codigo HTTP; a leitura da resposta so e conferida quanto a
+forma. Por isso o teste aceita erro de leitura do adapter sobre dado aleatorio (sem
+`status_http`, por exemplo CONCLUIDA sem Pix) e falha em qualquer recusa do banco.
+
+### Divergencias achadas e corrigidas
+
+1. **Devedor da `cob` so tem documento e nome.** O adapter mandava logradouro, cidade, UF, CEP
+   e e-mail tambem na cobranca imediata; o sandbox respondeu 400 (a violacao reportada aponta,
+   sem razao, `cob.valor.original`). Bisseccao: com so `cpf` e `nome` passa; qualquer campo de
+   endereco ou e-mail reprova. E o schema do BACEN (`cob` sem endereco; endereco e e-mail so na
+   `cobv`), entao a correcao vale para todos os perfis. Na `cobv` o devedor completo passa.
+2. **Id do titulo e o txid pedido.** O adapter adotava o `txid` do corpo da resposta como
+   `id_banco`; o sandbox devolve outro txid, aleatorio, e a reconsulta ia para ele. Agora
+   `id_banco` e `txid` sao sempre o txid gerado da chave de idempotencia.
+
+`tests/pix_falso.py` passou a recusar `cob` com devedor alem de documento e nome.
+
+Sem prova no sandbox: o OAuth de producao do Sicoob (sem `client_secret`, mTLS) e os escopos
+(duvida 8 e 2 abaixo); o token fixo nem e conferido pelo mock.
 
 ## Perfis
 
@@ -13,7 +51,7 @@ O que a leitura nao esclarece ficou de fora ou recusado, nao inventado.
 |---|---|---|---|---|
 | inter | form (id+segredo) | sim | sim | nenhum |
 | bb (API v2) | Basic | sim | prod | header `x-bb-portal-devx-cnpj-parceiro`, query `gw-dev-app-key`, alias `textoImagemQRcode` |
-| sicoob | so `client_id` (sandbox: token fixo do portal) | sim | prod | header `client_id`, alias `brcode` -> `pixCopiaECola` |
+| sicoob (validado no sandbox) | so `client_id` (sandbox: token fixo do portal) | sim | prod | header `client_id`, alias `brcode` -> `pixCopiaECola` |
 | sicredi | Basic | sim | sim | nenhum |
 | itau | form (id+segredo) | nao | prod | header `x-correlationID` (UUID por chamada) |
 | bradesco | Basic, HTTP/1.1 | nao | sim | nenhum |
@@ -66,8 +104,9 @@ O que a leitura nao esclarece ficou de fora ou recusado, nao inventado.
     Nao se sabe quais PSPs ja aceitam letras no campo `devedor.cnpj` (o schema antigo
     exigia 14 digitos).
 14. **Endereco do devedor.** Em `cobv` o adapter manda logradouro (com numero), cidade,
-    UF e CEP quando o `Pessoa` tem endereco. Alguns PSPs podem exigir todos os campos;
-    nao e validado localmente.
+    UF e CEP quando o `Pessoa` tem endereco (aceito no sandbox do Sicoob). Em `cob` manda
+    so documento e nome (o resto e 400 no sandbox do Sicoob, ver acima). Alguns PSPs podem
+    exigir todos os campos na `cobv`; nao e validado localmente.
 15. **Mapeamento de encargos para `cobv`.** Multa = modalidade 2 (percentual); juros =
     modalidade 3 (percentual ao mes, dias corridos); abatimento = modalidade 1 (valor
     fixo); desconto = modalidade 2 (percentual ate a data, `vencimento - dias_antes`).

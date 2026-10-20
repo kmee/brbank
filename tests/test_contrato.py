@@ -103,7 +103,7 @@ def _sicoob(dormir):
         client_id="cid",
         numero_cliente=25546454,
         numero_conta_corrente="123456",
-        codigo_especie_documento=2,
+        codigo_especie_documento="DM",
     )
     return SicoobAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
@@ -362,6 +362,8 @@ FABRICAS = [
         criar=_sicoob,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+        # O sandbox recusa nosso numero nao numerico com 400 antes de procurar.
+        status_inexistente=400,
     ),
     Fabrica(
         nome="sicredi",

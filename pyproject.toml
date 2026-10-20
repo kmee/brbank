@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brbank"
-version = "0.0.3"
+version = "0.0.4"
 description = "Cobranca bancaria unificada (boleto e Pix) para bancos brasileiros, independente do Odoo"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -63,6 +63,11 @@ packages = ["src/brbank"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Sandbox real so com `-m sandbox` (o ultimo -m vence) e credencial no ambiente.
+addopts = "-m 'not sandbox'"
+markers = [
+    "sandbox: chama o sandbox real de um banco (rede); credencial por variavel de ambiente",
+]
 
 [tool.ruff]
 line-length = 88

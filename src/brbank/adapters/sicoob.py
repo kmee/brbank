@@ -1,15 +1,20 @@
 """Sicoob (756), API de Cobranca Bancaria v3 (boleto hibrido, OAuth2 + mTLS).
 
-ESTADO: `validado_sandbox = False`. O contrato foi montado a partir de
-documentacao de terceiros (ver `docs/sicoob-duvidas.md`), nao de execucao
-contra o sandbox do Sicoob. Nada aqui foi confirmado com a API real.
+ESTADO: `validado_sandbox = True` desde 2026-10-20. O ciclo registrar,
+consultar, alterar (prorrogacao, abatimento, protesto), segunda via em PDF e
+baixar rodou contra o sandbox publico do Sicoob, que valida o corpo contra o
+swagger da v3 e devolve respostas de exemplo fixas. O sandbox nao exercita
+OAuth/mTLS, escopos nem transicao de estado: ver `docs/sicoob-duvidas.md`.
 
 Nao ha modulo Odoo de origem. Endpoints, campos e quirks (token sem
 client_secret, header `client_id`, datas AAAA-MM-DD, PATCH de alteracao) foram
-lidos como documentacao do ACBr (LGPL, nenhum codigo portado).
+lidos como documentacao do ACBr (LGPL, nenhum codigo portado) e conferidos no
+sandbox e no swagger v3.
 """
 
 import asyncio
+import base64
+import binascii
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -65,8 +70,16 @@ _TIPO_DESCONTO_PERCENTUAL_ATE_DATA = 2
 _TIPO_MULTA_PERCENTUAL = 2
 _TIPO_JUROS_TAXA_MENSAL = 2
 _TIPO_JUROS_ISENTO = 3
-_TIPO_HISTORICO_LIQUIDACAO = 6
+_TIPO_HISTORICO_LIQUIDACAO = "6"
+_CADASTRAR_PIX_SIM = 1
+_CADASTRAR_PIX_NAO = 2
 _VALOR_EM_DESCRICAO = re.compile(r"R\$\s*([0-9][0-9.,]*)")
+_ESPECIE = re.compile(r"[A-Z]{2,3}")
+# Tamanhos maximos do swagger v3 (o sandbox nao os confere; a producao sim).
+_MAX_SEU_NUMERO = 18
+_MAX_MENSAGEM = 40
+_MAX_PAGADOR = {"nome": 50, "endereco": 40, "bairro": 30, "cidade": 40}
+_MAX_NOME_BENEFICIARIO_FINAL = 40
 
 
 @dataclass
@@ -75,7 +88,8 @@ class SicoobConfig:
     client_id: str
     numero_cliente: int
     numero_conta_corrente: str
-    codigo_especie_documento: int
+    # Sigla da especie (DM, DS, NP, ...): o sandbox recusa numero com HTTP 400.
+    codigo_especie_documento: str
     codigo_modalidade: int = 1
     ambiente: str = "producao"
     certificado_pem: bytes | None = field(default=None, repr=False)
@@ -140,6 +154,8 @@ def _pessoa(pessoa: Pessoa, *, papel: str) -> dict[str, Any]:
         "cep": endereco.cep,
         "uf": endereco.uf,
     }
+    for campo, limite in _MAX_PAGADOR.items():
+        dados[campo] = dados[campo][:limite]
     if pessoa.email:
         dados["email"] = pessoa.email
     return dados
@@ -147,9 +163,9 @@ def _pessoa(pessoa: Pessoa, *, papel: str) -> dict[str, Any]:
 
 class SicoobAdapter(BankAdapter):
     banco: ClassVar[str] = "sicoob"
-    validado_sandbox: ClassVar[bool] = False
+    validado_sandbox: ClassVar[bool] = True
     capacidades: ClassVar[Capacidade] = (
-        Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA
+        Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA | Capacidade.PDF
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
 
@@ -162,6 +178,12 @@ class SicoobAdapter(BankAdapter):
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         hoje: Callable[[], date] = date.today,
     ) -> None:
+        especie = config.codigo_especie_documento
+        if not isinstance(especie, str) or not _ESPECIE.fullmatch(especie):
+            raise Validacao(
+                "sicoob: codigo_especie_documento e a sigla da especie (ex.: 'DM'); "
+                "a API v3 recusa codigo numerico"
+            )
         self._config = config
         self._hoje = hoje
         ssl_context = None
@@ -205,6 +227,9 @@ class SicoobAdapter(BankAdapter):
     def _montar_payload(self, titulo: Titulo) -> dict[str, Any]:
         if titulo.dias_baixa_automatica is not None:
             raise Validacao("sicoob: baixa automatica por dias nao tem campo na API v3")
+        if len(titulo.seu_numero) > _MAX_SEU_NUMERO:
+            # Truncar quebraria a conciliacao pelo seuNumero: recusa.
+            raise Validacao(f"sicoob: seuNumero com mais de {_MAX_SEU_NUMERO} posicoes")
         cfg = self._config
         modo = 1 if cfg.banco_emite_e_distribui else 2
         payload: dict[str, Any] = {
@@ -222,7 +247,10 @@ class SicoobAdapter(BankAdapter):
             "aceite": False,
             "pagador": _pessoa(titulo.pagador, papel="pagador"),
             "gerarPdf": False,
-            "codigoCadastrarPIX": 1 if cfg.cadastrar_pix else 0,
+            # 0 seria "padrao do contrato", que nao garante a ausencia do QR.
+            "codigoCadastrarPIX": (
+                _CADASTRAR_PIX_SIM if cfg.cadastrar_pix else _CADASTRAR_PIX_NAO
+            ),
         }
         enc = titulo.encargos
         apos_vencimento = (titulo.vencimento + timedelta(days=1)).isoformat()
@@ -251,11 +279,13 @@ class SicoobAdapter(BankAdapter):
             payload["valorMulta"] = 0
         if titulo.beneficiario:
             payload["beneficiarioFinal"] = {
-                "nome": titulo.beneficiario.nome,
+                "nome": titulo.beneficiario.nome[:_MAX_NOME_BENEFICIARIO_FINAL],
                 "numeroCpfCnpj": titulo.beneficiario.documento,
             }
         if titulo.mensagens:
-            payload["mensagensInstrucao"] = list(titulo.mensagens[:5])
+            payload["mensagensInstrucao"] = [
+                m[:_MAX_MENSAGEM] for m in titulo.mensagens[:5]
+            ]
         return payload
 
     @staticmethod
@@ -349,11 +379,12 @@ class SicoobAdapter(BankAdapter):
     def _liquidacao(r: dict[str, Any]) -> tuple[Decimal | None, date | None]:
         """Valor e data da liquidacao vem do historico (tipoHistorico 6).
 
-        O valor so existe como texto em `descricaoHistorico`; formato nao
-        confirmado (ver docs/sicoob-duvidas.md), logo pode vir None.
+        O valor so existe como texto em `descricaoHistorico` ("... - R$ 0,75" no
+        exemplo do sandbox); sem o padrao, vem None. `tipoHistorico` e string no
+        swagger e numero no exemplo do sandbox: compara pelo texto.
         """
         for item in r.get("listaHistorico") or []:
-            if item.get("tipoHistorico") != _TIPO_HISTORICO_LIQUIDACAO:
+            if str(item.get("tipoHistorico")) != _TIPO_HISTORICO_LIQUIDACAO:
                 continue
             achado = _VALOR_EM_DESCRICAO.search(item.get("descricaoHistorico") or "")
             valor = _dinheiro_ptbr(achado.group(1)) if achado else None
@@ -412,6 +443,33 @@ class SicoobAdapter(BankAdapter):
         return TituloRegistrado(
             banco=self.banco, id_banco=id_banco, status=StatusCanonico.BAIXADO
         )
+
+    async def obter_pdf(self, id_banco: str) -> bytes:
+        """Segunda via: `GET /boletos/segunda-via?gerarPdf=true`, PDF em base64."""
+        consulta = urlencode(
+            {
+                **self._identificacao(),
+                "nossoNumero": id_banco,
+                "gerarPdf": "true",
+            }
+        )
+        resp = await self._transporte.requisitar(
+            "GET",
+            f"boletos/segunda-via?{consulta}",
+            operacao="pdf",
+            escopo="consultar",
+            cabecalhos=self._cabecalhos(),
+        )
+        bruto = self._resultado(resp).get("pdfBoleto") or ""
+        try:
+            # Decodificacao tolerante: o exemplo do sandbox traz padding em
+            # excesso, que o modo estrito recusa. O cabecalho %PDF decide.
+            pdf = base64.b64decode(bruto)
+        except (binascii.Error, ValueError) as exc:
+            raise Validacao("PDF do Sicoob corrompido") from exc
+        if not pdf.startswith(b"%PDF"):
+            raise Validacao("resposta do Sicoob nao contem PDF")
+        return pdf
 
     def parse_webhook(
         self,
