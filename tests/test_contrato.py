@@ -14,12 +14,14 @@ import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
+from brbank.adapters.caixa import CaixaAdapter, CaixaConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from tests.bb_falso import CHAVE_DEV, BBFalso
+from tests.caixa_falso import CODIGO_BENEFICIARIO, DOCUMENTO_BENEFICIARIO, CaixaFalso
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
@@ -34,6 +36,9 @@ class Fabrica:
     criar: Callable[[Any], tuple[Any, Any]]  # (dormir) -> (adapter, falso)
     liquidar: Callable[[Any, str], None]
     webhook: Callable[[str, str], bytes]
+    # HTTP esperado para titulo inexistente; None quando o banco (SOAP) devolve
+    # o erro de negocio com HTTP 200 e o adapter recusa o id antes da chamada.
+    status_inexistente: int | None = 404
 
 
 def _inter(dormir):
@@ -87,6 +92,20 @@ def _bb(dormir):
     return BancoDoBrasilAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _caixa(dormir):
+    falso = CaixaFalso()
+    sequencia = itertools.count(1)
+    config = CaixaConfig(
+        conta="conta-cx",
+        codigo_beneficiario=CODIGO_BENEFICIARIO,
+        agencia="1234",
+        documento_beneficiario=DOCUMENTO_BENEFICIARIO,
+        tipo_especie=2,
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return CaixaAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _sicredi(dormir):
     falso = SicrediFalso("/sb")
     config = SicrediConfig(
@@ -129,6 +148,13 @@ FABRICAS = [
         criar=_bb,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="caixa",
+        criar=_caixa,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+        status_inexistente=None,
     ),
     Fabrica(
         nome="inter",
@@ -236,10 +262,11 @@ async def test_webhook(ambiente):
 
 
 async def test_titulo_inexistente_e_validacao(ambiente):
-    _, adapter, _ = ambiente
+    fabrica, adapter, _ = ambiente
     with pytest.raises(Validacao) as erro:
         await adapter.consultar_titulo("nao-existe")
-    assert erro.value.status_http == 404
+    if fabrica.status_inexistente is not None:
+        assert erro.value.status_http == fabrica.status_inexistente
     assert not erro.value.retryable
 
 
