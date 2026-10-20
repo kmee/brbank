@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brbank"
-version = "0.0.2"
+version = "0.0.3"
 description = "Cobranca bancaria unificada (boleto e Pix) para bancos brasileiros, independente do Odoo"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,11 +33,20 @@ Homepage = "https://github.com/kmee/brbank"
 Issues = "https://github.com/kmee/brbank/issues"
 
 [project.entry-points."brbank.adapters"]
+banrisul = "brbank.adapters.banrisul:BanrisulAdapter"
 bb = "brbank.adapters.bb:BancoDoBrasilAdapter"
+c6 = "brbank.adapters.c6:C6Adapter"
+btg = "brbank.adapters.btg:BtgAdapter"
+bradesco = "brbank.adapters.bradesco:BradescoAdapter"
+caixa = "brbank.adapters.caixa:CaixaAdapter"
 inter = "brbank.adapters.inter:InterAdapter"
+itau = "brbank.adapters.itau:ItauAdapter"
 pinbank = "brbank.adapters.pinbank:PinbankAdapter"
+santander = "brbank.adapters.santander:SantanderAdapter"
+safra = "brbank.adapters.safra:SafraAdapter"
 sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 sicredi = "brbank.adapters.sicredi:SicrediAdapter"
+unicred = "brbank.adapters.unicred:UnicredAdapter"
 pix_bacen = "brbank.adapters.pix_bacen:PixBacenAdapter"
 
 [dependency-groups]

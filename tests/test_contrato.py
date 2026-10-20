@@ -13,17 +13,35 @@ from typing import Any
 import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
+from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
+from brbank.adapters.bradesco import BradescoAdapter, BradescoConfig
+from brbank.adapters.btg import BtgAdapter, BtgConfig
+from brbank.adapters.c6 import C6Adapter, C6Config
+from brbank.adapters.caixa import CaixaAdapter, CaixaConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
+from brbank.adapters.itau import ItauAdapter, ItauConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
+from brbank.adapters.safra import SafraAdapter, SafraConfig
+from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
+from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
+from tests import unicred_falso
+from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
-from tests.conftest import fazer_titulo
+from tests.bradesco_falso import BradescoFalso
+from tests.btg_falso import CLIENT_ID, CLIENT_SECRET, REFRESH_INICIAL, BtgFalso
+from tests.c6_falso import C6Falso
+from tests.caixa_falso import CODIGO_BENEFICIARIO, DOCUMENTO_BENEFICIARIO, CaixaFalso
+from tests.conftest import CNPJ_VALIDO, fazer_titulo
 from tests.inter_falso import InterFalso
+from tests.itau_falso import ItauFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
 from tests.pix_falso import PixFalso
+from tests.safra_falso import SafraFalso
+from tests.santander_falso import WORKSPACE, SantanderFalso
 from tests.sicoob_falso import SicoobFalso
 from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
@@ -34,6 +52,9 @@ class Fabrica:
     criar: Callable[[Any], tuple[Any, Any]]  # (dormir) -> (adapter, falso)
     liquidar: Callable[[Any, str], None]
     webhook: Callable[[str, str], bytes]
+    # HTTP esperado para titulo inexistente; None quando o banco (SOAP) devolve
+    # o erro de negocio com HTTP 200 e o adapter recusa o id antes da chamada.
+    status_inexistente: int | None = 404
 
 
 def _inter(dormir):
@@ -42,6 +63,23 @@ def _inter(dormir):
         conta="conta-1", client_id="id", client_secret="segredo", conta_corrente="123"
     )
     return InterAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _itau(dormir):
+    falso = ItauFalso()
+    sequencia = itertools.count(1)
+    config = ItauConfig(
+        conta="conta-itau",
+        client_id="id",
+        client_secret="segredo",
+        agencia="1500",
+        conta_corrente="5000",
+        digito_conta="5",
+        carteira=109,
+        chave_pix="chave@kmee.com.br",
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return ItauAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _pinbank(dormir):
@@ -70,6 +108,19 @@ def _sicoob(dormir):
     return SicoobAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _banrisul(dormir):
+    falso = BanrisulFalso()
+    config = BanrisulConfig(
+        conta="conta-banrisul",
+        client_id="id",
+        client_secret="segredo",
+        codigo_beneficiario=BENEFICIARIO,
+        especie="02",
+        ambiente="sandbox",
+    )
+    return BanrisulAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _bb(dormir):
     falso = BBFalso()
     sequencia = itertools.count(1)
@@ -87,6 +138,75 @@ def _bb(dormir):
     return BancoDoBrasilAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _c6(dormir):
+    falso = C6Falso()
+    config = C6Config(
+        conta="conta-c6",
+        client_id="id",
+        client_secret="segredo",
+        chave_pix="123e4567-e89b-12d3-a456-426614174000",
+        ambiente="sandbox",
+    )
+    return C6Adapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _webhook_c6(id_banco, situacao):
+    info = {"external_reference_id": id_banco, "amount": "150.00"}
+    return json.dumps(
+        {"service": "BANK_SLIP_PIX", "status": "PAID", "information": json.dumps(info)}
+    ).encode()
+
+
+def _btg(dormir):
+    falso = BtgFalso()
+    config = BtgConfig(
+        conta="conta-btg",
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        refresh_token=REFRESH_INICIAL,
+        cnpj_empresa=CNPJ_VALIDO,
+        agencia="50",
+        conta_corrente="0030818500",
+        dias_expiracao=30,
+    )
+    return BtgAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _webhook_btg(id_banco, situacao):
+    dados = {"collectionId": id_banco, "status": "PAID", "amountPaid": 150.0}
+    return json.dumps(
+        {"webhookId": "w-1", "event": "collections.paid", "data": dados}
+    ).encode()
+
+
+def _bradesco(dormir):
+    falso = BradescoFalso()
+    config = BradescoConfig(
+        conta="conta-bradesco",
+        client_id="id",
+        client_secret="segredo",
+        documento_beneficiario="11.222.333/0001-81",
+        agencia="2856",
+        conta_corrente="22654",
+        carteira=9,
+    )
+    return BradescoAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _caixa(dormir):
+    falso = CaixaFalso()
+    sequencia = itertools.count(1)
+    config = CaixaConfig(
+        conta="conta-cx",
+        codigo_beneficiario=CODIGO_BENEFICIARIO,
+        agencia="1234",
+        documento_beneficiario=DOCUMENTO_BENEFICIARIO,
+        tipo_especie=2,
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return CaixaAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _sicredi(dormir):
     falso = SicrediFalso("/sb")
     config = SicrediConfig(
@@ -100,6 +220,56 @@ def _sicredi(dormir):
         ambiente="sandbox",
     )
     return SicrediAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _santander(dormir):
+    falso = SantanderFalso()
+    sequencia = itertools.count(1)
+    config = SantanderConfig(
+        conta="conta-st",
+        client_id="cid",
+        client_secret="segredo",
+        workspace_id=WORKSPACE,
+        convenio="3567206",
+        chave_pix="11222333000181",
+        tipo_chave_pix="CNPJ",
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return SantanderAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _safra(dormir):
+    falso = SafraFalso()
+    sequencia = itertools.count(1)
+    config = SafraConfig(
+        conta="conta-sf",
+        client_id="cid",
+        usuario="usuario",
+        senha="senha",
+        agencia="0290",
+        conta_corrente="0058604",
+        especie="01",
+        ambiente="sandbox",
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return SafraAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _unicred(dormir):
+    falso = unicred_falso.UnicredFalso("/homolog")
+    config = UnicredConfig(
+        conta="conta-un",
+        api_key=unicred_falso.API_KEY,
+        usuario="usuario",
+        senha="senha",
+        cooperativa="0001",
+        id_beneficiario=unicred_falso.BENEFICIARIO,
+        variacao_carteira=43,
+        ambiente="sandbox",
+        chave_autenticacao_webhook=unicred_falso.CHAVE_AUT,
+        chave_criptografia_webhook=unicred_falso.CHAVE_CRIPTO,
+    )
+    return UnicredAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _pix(nome: str, **extra):
@@ -125,10 +295,41 @@ def _webhook_pix(id_banco, situacao):
 
 FABRICAS = [
     Fabrica(
+        nome="banrisul",
+        criar=_banrisul,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
         nome="bb",
         criar=_bb,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="c6",
+        criar=_c6,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=_webhook_c6,
+    ),
+    Fabrica(
+        nome="btg",
+        criar=_btg,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=_webhook_btg,
+    ),
+    Fabrica(
+        nome="bradesco",
+        criar=_bradesco,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="caixa",
+        criar=_caixa,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+        status_inexistente=None,
     ),
     Fabrica(
         nome="inter",
@@ -139,8 +340,20 @@ FABRICAS = [
         ).encode(),
     ),
     Fabrica(
+        nome="itau",
+        criar=_itau,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
         nome="pinbank",
         criar=_pinbank,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="safra",
+        criar=_safra,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
     ),
@@ -157,6 +370,18 @@ FABRICAS = [
         webhook=lambda id_banco, situacao: json.dumps(
             {"nossoNumero": id_banco, "movimento": "LIQUIDACAO_PIX"}
         ).encode(),
+    ),
+    Fabrica(
+        nome="santander",
+        criar=_santander,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="unicred",
+        criar=_unicred,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: unicred_falso.webhook_liquidacao(id_banco),
     ),
     *(
         Fabrica(
@@ -236,10 +461,11 @@ async def test_webhook(ambiente):
 
 
 async def test_titulo_inexistente_e_validacao(ambiente):
-    _, adapter, _ = ambiente
+    fabrica, adapter, _ = ambiente
     with pytest.raises(Validacao) as erro:
         await adapter.consultar_titulo("nao-existe")
-    assert erro.value.status_http == 404
+    if fabrica.status_inexistente is not None:
+        assert erro.value.status_http == fabrica.status_inexistente
     assert not erro.value.retryable
 
 
