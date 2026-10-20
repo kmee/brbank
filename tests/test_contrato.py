@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
+from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.c6 import C6Adapter, C6Config
 from brbank.adapters.inter import InterAdapter, InterConfig
@@ -25,6 +26,7 @@ from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
 from tests import unicred_falso
+from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.c6_falso import C6Falso
 from tests.conftest import fazer_titulo
@@ -95,6 +97,19 @@ def _sicoob(dormir):
         codigo_especie_documento=2,
     )
     return SicoobAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _banrisul(dormir):
+    falso = BanrisulFalso()
+    config = BanrisulConfig(
+        conta="conta-banrisul",
+        client_id="id",
+        client_secret="segredo",
+        codigo_beneficiario=BENEFICIARIO,
+        especie="02",
+        ambiente="sandbox",
+    )
+    return BanrisulAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _bb(dormir):
@@ -216,6 +231,12 @@ def _webhook_pix(id_banco, situacao):
 
 
 FABRICAS = [
+    Fabrica(
+        nome="banrisul",
+        criar=_banrisul,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
     Fabrica(
         nome="bb",
         criar=_bb,

@@ -30,6 +30,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Safra (422) | `safra` | Cobranca v1 (Safra Negocios) | so registro e consulta | ACBr |
 | Unicred (136) | `unicred` | Cobranca v2, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | Portal oficial |
 | C6 Bank (336) | `c6` | Bolepix v2, boleto hibrido | hibrido, alteracao, baixa, PDF, webhook | OpenAPI publica do C6 |
+| Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | Doc oficial + ACBr |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,

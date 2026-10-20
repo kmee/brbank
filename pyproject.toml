@@ -33,6 +33,7 @@ Homepage = "https://github.com/kmee/brbank"
 Issues = "https://github.com/kmee/brbank/issues"
 
 [project.entry-points."brbank.adapters"]
+banrisul = "brbank.adapters.banrisul:BanrisulAdapter"
 bb = "brbank.adapters.bb:BancoDoBrasilAdapter"
 c6 = "brbank.adapters.c6:C6Adapter"
 inter = "brbank.adapters.inter:InterAdapter"
