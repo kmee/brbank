@@ -14,12 +14,14 @@ import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
+from brbank.adapters.bradesco import BradescoAdapter, BradescoConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from tests.bb_falso import CHAVE_DEV, BBFalso
+from tests.bradesco_falso import BradescoFalso
 from tests.conftest import fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
@@ -87,6 +89,20 @@ def _bb(dormir):
     return BancoDoBrasilAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
+def _bradesco(dormir):
+    falso = BradescoFalso()
+    config = BradescoConfig(
+        conta="conta-bradesco",
+        client_id="id",
+        client_secret="segredo",
+        documento_beneficiario="11.222.333/0001-81",
+        agencia="2856",
+        conta_corrente="22654",
+        carteira=9,
+    )
+    return BradescoAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _sicredi(dormir):
     falso = SicrediFalso("/sb")
     config = SicrediConfig(
@@ -127,6 +143,12 @@ FABRICAS = [
     Fabrica(
         nome="bb",
         criar=_bb,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="bradesco",
+        criar=_bradesco,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
     ),

@@ -25,6 +25,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa | ACBr |
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | ACBr |
 | Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | ACBr |
+| Bradesco (237) | `bradesco` | Cobranca (portal Developers, sem QR Code) | baixa | ACBr e terceiros |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
@@ -89,6 +90,12 @@ O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa
 `client_credentials` e a chave `gw-dev-app-key` em query param; registra, consulta, baixa,
 prorroga e abate, sem webhook nem PDF. Nasce com `validado_sandbox = False`: ver
 `docs/bb-duvidas.md`.
+
+O `BradescoAdapter` (`bradesco`, API Cobranca convencional do portal Bradesco Developers)
+usa OAuth2 `client_credentials` sobre mTLS (o fluxo legado com JWT nao e coberto); registra,
+consulta e baixa pelo nosso numero gerado pelo banco. Sem alteracao, PDF nem webhook
+declarados; desconto e abatimento no registro sao recusados ate haver contrato. Nasce com
+`validado_sandbox = False`: ver `docs/bradesco-duvidas.md`.
 
 O `SicrediAdapter` (API de Cobranca v2, OAuth2 `password`) registra, consulta, baixa e
 altera (prorrogacao e abatimento); webhook sem assinatura exige reconsulta. Nasce com
