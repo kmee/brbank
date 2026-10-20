@@ -25,6 +25,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa | ACBr |
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | ACBr |
 | Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | ACBr |
+| Unicred (136) | `unicred` | Cobranca v2, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | Portal oficial |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
