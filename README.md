@@ -14,43 +14,41 @@ de adapter, transporte, autenticacao, orquestrador e os adapters da tabela abaix
 ## Bancos suportados
 
 Todos os adapters passam pela mesma suite de contrato (registrar, consultar, baixar) contra um
-servidor falso. "Origem" diz de onde veio o contrato: **Odoo** = portado de um modulo que ja roda
-em producao (o adapter da biblioteca ainda nao rodou contra o banco), **ACBr** = levantado por leitura
-do ACBr, usado so como documentacao, e de fontes de terceiros.
+servidor falso. "Fonte do contrato" diz de onde veio o comportamento implementado: **Odoo** =
+portado de um modulo que ja roda em producao; **oficial** = especificacao publicada pelo banco
+(OpenAPI, WSDL ou portal); **publica e terceiros** = documentacao publica, integracoes e SDKs de
+terceiros, porque o portal do banco exige login. O detalhe e as duvidas de cada banco estao em
+`docs/<banco>-duvidas.md`.
 
-| Banco | Adapter (entry point) | Produto | Capacidades declaradas | Origem |
+| Banco | Adapter (entry point) | Produto | Capacidades declaradas | Fonte do contrato |
 | --- | --- | --- | --- | --- |
 | Inter (077) | `inter` | Cobranca v3, boleto hibrido | hibrido, so hibrido, baixa, PDF, webhook | Odoo |
 | PinBank | `pinbank` | Boleto, envelope AES-CBC | baixa | Odoo |
-| Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa | ACBr |
-| Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | ACBr |
-| Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | ACBr |
-| Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | ACBr |
-| Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | ACBr |
-| Safra (422) | `safra` | Cobranca v1 (Safra Negocios) | so registro e consulta | ACBr |
-| Unicred (136) | `unicred` | Cobranca v2, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | Portal oficial |
-| C6 Bank (336) | `c6` | Bolepix v2, boleto hibrido | hibrido, alteracao, baixa, PDF, webhook | OpenAPI publica do C6 |
-| Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | Doc oficial + ACBr |
-| BTG Pactual (208) | `btg` | BTG Empresas, Banking Collections, bolepix | hibrido, alteracao, baixa, PDF, webhook, emissao assincrona | spec oficial |
-| Bradesco (237) | `bradesco` | Cobranca (portal Developers, sem QR Code) | baixa | ACBr e terceiros |
-| Caixa (104) | `caixa` | SIGCB, webservice SOAP, boleto hibrido | hibrido, alteracao, baixa | XSD oficial + ACBr |
+| Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | publica e terceiros |
+| Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | oficial |
+| Bradesco (237) | `bradesco` | Cobranca convencional (sem QR Code) | baixa | publica e terceiros |
+| BTG Pactual (208) | `btg` | Banking Collections, bolepix | hibrido, alteracao, baixa, PDF, webhook, emissao assincrona | oficial |
+| C6 Bank (336) | `c6` | Bolepix v2, boleto hibrido | hibrido, alteracao, baixa, PDF, webhook | oficial |
+| Caixa (104) | `caixa` | SIGCB, webservice SOAP | hibrido, alteracao, baixa | oficial (WSDL) |
+| Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | publica e terceiros |
+| Safra (422) | `safra` | Cobranca v1 | so registro e consulta | publica e terceiros |
+| Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | publica e terceiros |
+| Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa | publica e terceiros |
+| Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | publica e terceiros |
+| Unicred (136) | `unicred` | Cobranca, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | oficial |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
 Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
 
-Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Banrisul,
-Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Safra, Banrisul,
-Unicred, BTG e C6 (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
-Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Safra, Banrisul,
-Unicred e BTG (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
-variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter` e um entry point em
-`brbank.adapters`; veja `docs/` para o que cada banco ainda deixa em aberto.
+Fora desta lista por enquanto: BNB, gateways como Mercado Pago, PagBank e Stone (sob demanda), o
+boleto hibrido do Bradesco e a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
+e um entry point em `brbank.adapters`.
 
-**Nenhum adapter da biblioteca foi validado em sandbox.** Sicoob, Sicredi, Banco do Brasil e os
-perfis Pix trazem `validado_sandbox = False` no codigo e so passam a `True` depois de rodar contra o
-ambiente real do banco. Inter e PinBank herdam a logica de modulos Odoo em producao, mas o adapter
-da biblioteca tambem ainda nao rodou contra o banco.
+**Nenhum adapter foi validado em sandbox.** Todos trazem `validado_sandbox = False` (os perfis Pix
+tambem) e so passam a `True` depois de rodar contra o ambiente real do banco. Inter e PinBank herdam
+a logica de modulos Odoo em producao, mas o adapter da biblioteca tambem ainda nao rodou contra o
+banco.
 
 ## Uso
 

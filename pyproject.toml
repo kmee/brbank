@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brbank"
-version = "0.0.2"
+version = "0.0.3"
 description = "Cobranca bancaria unificada (boleto e Pix) para bancos brasileiros, independente do Odoo"
 readme = "README.md"
 requires-python = ">=3.10"

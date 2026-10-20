@@ -14,6 +14,8 @@ class BankAdapter(ABC):
     banco: ClassVar[str]
     capacidades: ClassVar[Capacidade]
     tabela_status: ClassVar[TabelaStatus]
+    # So vira True depois de rodar contra o ambiente real do banco.
+    validado_sandbox: ClassVar[bool] = False
 
     def suporta(self, capacidade: Capacidade) -> bool:
         return capacidade in self.capacidades
