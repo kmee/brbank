@@ -26,6 +26,7 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | ACBr |
 | Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | ACBr |
 | Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | ACBr |
+| Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | ACBr |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
