@@ -35,6 +35,7 @@ from urllib.parse import quote
 
 import httpx
 
+from brbank._compat import datetime_iso
 from brbank.adapter import BankAdapter
 from brbank.auth import (
     Autenticador,
@@ -284,7 +285,7 @@ def _instante(valor: str | None) -> datetime | None:
     if not valor:
         return None
     try:
-        return datetime.fromisoformat(valor)
+        return datetime_iso(valor)
     except ValueError as exc:
         raise Validacao("data/hora invalida na resposta do PSP") from exc
 

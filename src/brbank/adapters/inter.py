@@ -12,12 +12,13 @@ import binascii
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any, ClassVar
 
 import httpx
 
+from brbank._compat import datetime_iso
 from brbank.adapter import BankAdapter
 from brbank.auth import OAuth2ClientCredentials
 from brbank.capacidades import Capacidade
@@ -342,7 +343,7 @@ class InterAdapter(BankAdapter):
                     banco=self.banco,
                     referencia=item["codigoSolicitacao"],
                     tipo=self.tabela_status.traduzir(item.get("situacao")),
-                    ocorrido_em=datetime.fromisoformat(momento) if momento else None,
+                    ocorrido_em=datetime_iso(momento) if momento else None,
                     valor_pago=_dinheiro(item.get("valorTotalRecebido")),
                     resposta_bruta=mascarar(item),
                 )

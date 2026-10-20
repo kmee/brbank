@@ -2,7 +2,6 @@
 
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from enum import StrEnum
 from typing import Annotated, Any
 
 from pydantic import (
@@ -14,6 +13,7 @@ from pydantic import (
     model_validator,
 )
 
+from brbank._compat import StrEnum
 from brbank.documento import normalizar_documento, tipo_documento
 from brbank.mascara import mascarar
 from brbank.status import StatusCanonico

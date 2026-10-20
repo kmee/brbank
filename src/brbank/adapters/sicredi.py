@@ -23,13 +23,14 @@ import json
 import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 import httpx
 
+from brbank._compat import datetime_iso
 from brbank.adapter import BankAdapter
 from brbank.auth import OAuth2Password
 from brbank.capacidades import Capacidade
@@ -410,7 +411,7 @@ class SicrediAdapter(BankAdapter):
                 raise Validacao("webhook do Sicredi sem nossoNumero")
             momento = item.get("dataEvento")
             try:
-                ocorrido = datetime.fromisoformat(momento) if momento else None
+                ocorrido = datetime_iso(momento) if momento else None
             except (ValueError, TypeError) as exc:
                 raise Validacao("data do evento do Sicredi ilegivel") from exc
             eventos.append(
