@@ -33,12 +33,14 @@ do ACBr, usado so como documentacao, e de fontes de terceiros.
 | Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | Doc oficial + ACBr |
 | BTG Pactual (208) | `btg` | BTG Empresas, Banking Collections, bolepix | hibrido, alteracao, baixa, PDF, webhook, emissao assincrona | spec oficial |
 | Bradesco (237) | `bradesco` | Cobranca (portal Developers, sem QR Code) | baixa | ACBr e terceiros |
+| Caixa (104) | `caixa` | SIGCB, webservice SOAP, boleto hibrido | hibrido, alteracao, baixa | XSD oficial + ACBr |
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
 Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
 
 Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Banrisul,
+Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Safra, Banrisul,
 Unicred, BTG e C6 (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a
 Fora desta lista por enquanto: BNB (sem referencia de Pix confiavel), Caixa, Safra, Banrisul,
 Unicred e BTG (planejados), gateways como Mercado Pago, PagBank e Stone (sob demanda) e a

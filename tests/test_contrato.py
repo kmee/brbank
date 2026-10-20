@@ -15,32 +15,33 @@ import pytest
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
 from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
-from brbank.adapters.c6 import C6Adapter, C6Config
-from brbank.adapters.btg import BtgAdapter, BtgConfig
 from brbank.adapters.bradesco import BradescoAdapter, BradescoConfig
+from brbank.adapters.btg import BtgAdapter, BtgConfig
+from brbank.adapters.c6 import C6Adapter, C6Config
+from brbank.adapters.caixa import CaixaAdapter, CaixaConfig
 from brbank.adapters.inter import InterAdapter, InterConfig
 from brbank.adapters.itau import ItauAdapter, ItauConfig
 from brbank.adapters.pinbank import PinbankAdapter, PinbankConfig
 from brbank.adapters.pix_bacen import PERFIS, PixBacenAdapter, PixBacenConfig
-from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.safra import SafraAdapter, SafraConfig
+from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
 from tests import unicred_falso
 from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
-from tests.c6_falso import C6Falso
 from tests.bradesco_falso import BradescoFalso
-from tests.conftest import fazer_titulo
 from tests.btg_falso import CLIENT_ID, CLIENT_SECRET, REFRESH_INICIAL, BtgFalso
+from tests.c6_falso import C6Falso
+from tests.caixa_falso import CODIGO_BENEFICIARIO, DOCUMENTO_BENEFICIARIO, CaixaFalso
 from tests.conftest import CNPJ_VALIDO, fazer_titulo
 from tests.inter_falso import InterFalso
 from tests.itau_falso import ItauFalso
 from tests.pinbank_falso import SENHA, PinbankFalso
 from tests.pix_falso import PixFalso
-from tests.santander_falso import WORKSPACE, SantanderFalso
 from tests.safra_falso import SafraFalso
+from tests.santander_falso import WORKSPACE, SantanderFalso
 from tests.sicoob_falso import SicoobFalso
 from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
@@ -51,6 +52,9 @@ class Fabrica:
     criar: Callable[[Any], tuple[Any, Any]]  # (dormir) -> (adapter, falso)
     liquidar: Callable[[Any, str], None]
     webhook: Callable[[str, str], bytes]
+    # HTTP esperado para titulo inexistente; None quando o banco (SOAP) devolve
+    # o erro de negocio com HTTP 200 e o adapter recusa o id antes da chamada.
+    status_inexistente: int | None = 404
 
 
 def _inter(dormir):
@@ -173,6 +177,8 @@ def _webhook_btg(id_banco, situacao):
     return json.dumps(
         {"webhookId": "w-1", "event": "collections.paid", "data": dados}
     ).encode()
+
+
 def _bradesco(dormir):
     falso = BradescoFalso()
     config = BradescoConfig(
@@ -185,6 +191,20 @@ def _bradesco(dormir):
         carteira=9,
     )
     return BradescoAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
+def _caixa(dormir):
+    falso = CaixaFalso()
+    sequencia = itertools.count(1)
+    config = CaixaConfig(
+        conta="conta-cx",
+        codigo_beneficiario=CODIGO_BENEFICIARIO,
+        agencia="1234",
+        documento_beneficiario=DOCUMENTO_BENEFICIARIO,
+        tipo_especie=2,
+        gerar_nosso_numero=lambda _titulo: next(sequencia),
+    )
+    return CaixaAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _sicredi(dormir):
@@ -216,6 +236,8 @@ def _santander(dormir):
         gerar_nosso_numero=lambda _titulo: next(sequencia),
     )
     return SantanderAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _safra(dormir):
     falso = SafraFalso()
     sequencia = itertools.count(1)
@@ -231,6 +253,8 @@ def _safra(dormir):
         gerar_nosso_numero=lambda _titulo: next(sequencia),
     )
     return SafraAdapter(config, client=falso.cliente(), dormir=dormir), falso
+
+
 def _unicred(dormir):
     falso = unicred_falso.UnicredFalso("/homolog")
     config = UnicredConfig(
@@ -299,6 +323,13 @@ FABRICAS = [
         criar=_bradesco,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
         webhook=lambda id_banco, situacao: b"[]",
+    ),
+    Fabrica(
+        nome="caixa",
+        criar=_caixa,
+        liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
+        webhook=lambda id_banco, situacao: b"[]",
+        status_inexistente=None,
     ),
     Fabrica(
         nome="inter",
@@ -430,10 +461,11 @@ async def test_webhook(ambiente):
 
 
 async def test_titulo_inexistente_e_validacao(ambiente):
-    _, adapter, _ = ambiente
+    fabrica, adapter, _ = ambiente
     with pytest.raises(Validacao) as erro:
         await adapter.consultar_titulo("nao-existe")
-    assert erro.value.status_http == 404
+    if fabrica.status_inexistente is not None:
+        assert erro.value.status_http == fabrica.status_inexistente
     assert not erro.value.retryable
 
 
