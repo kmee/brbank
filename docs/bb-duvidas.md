@@ -17,6 +17,15 @@ Fontes usadas, por ordem de confianca:
 
 O adapter nasce com `validado_sandbox = False`.
 
+**Sandbox (tentativa de 2026-10-20):** o BB nao publica credencial de teste aberta (o
+`client_id`, o `client_secret` e a `gw-dev-app-key` saem do cadastro de aplicacao no portal),
+entao nada foi exercitado. Achado ao sondar o host sem credencial: o certificado TLS de
+`api.sandbox.bb.com.br` (usado em `URL_SANDBOX`) esta vencido desde 2026-07-23 e e emitido
+para `ingress.nuvem.bb.com.br`, entao qualquer chamada falha em `CERTIFICATE_VERIFY_FAILED`
+antes de chegar ao BB; `oauth.sandbox.bb.com.br` tambem falha na verificacao. O host de
+homologacao `api.hm.bb.com.br` (o do perfil Pix `bb`) responde 403 sem credencial. Confirmar
+no portal qual host vale para cobranca hoje antes de testar.
+
 ## Risco do PRD: chave de desenvolvedor e header de parceiro
 
 - `gw-dev-app-key` e **query param** em toda chamada de negocio (nao em header),

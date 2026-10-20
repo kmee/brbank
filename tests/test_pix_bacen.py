@@ -42,7 +42,7 @@ def montar(nome="inter", ambiente="producao", dormir=None, **extra):
     return adapter, falso
 
 
-def test_perfis_nascem_nao_validados():
+def test_so_o_perfil_sicoob_validado_em_sandbox():
     assert set(PERFIS) == {
         "inter",
         "bb",
@@ -53,7 +53,7 @@ def test_perfis_nascem_nao_validados():
         "santander",
         "efi",
     }
-    assert not any(p.validado_sandbox for p in PERFIS.values())
+    assert {n for n, p in PERFIS.items() if p.validado_sandbox} == {"sicoob"}
 
 
 def test_bnb_sem_perfil():
@@ -142,6 +142,7 @@ async def test_registro_cobv_com_encargos_e_resultado_pix():
         "descontoDataFixa": [{"data": "2026-12-07", "valorPerc": "5.00"}],
     }
     assert corpo["devedor"]["cpf"] == "52998224725"
+    assert corpo["devedor"]["cep"] == "30110000"
     assert {"nome": "Mensagem 1", "valor": "pague em dia"} in corpo["infoAdicionais"]
     # Copia-e-cola e dados do pagador nao vazam na resposta bruta guardada.
     assert registrado.resposta_bruta["pixCopiaECola"] == "***"
@@ -152,12 +153,48 @@ async def test_cob_imediata_recusa_encargos_e_usa_expiracao():
     adapter, falso = montar(modalidade="cob", expiracao_s=600)
     await adapter.registrar_titulo(fazer_titulo())
     assert falso.ultimo_corpo["calendario"] == {"expiracao": 600}
+    # Sandbox do Sicoob (2026-10-20): cob com endereco ou e-mail do devedor e 400.
+    assert falso.ultimo_corpo["devedor"] == {
+        "cpf": "52998224725",
+        "nome": "Maria da Silva",
+    }
     assert ("cob", gerar_txid("c1", "chave-1")) in falso.cobrancas
     titulo = fazer_titulo("c2").model_copy(
         update={"encargos": Encargos(multa_percentual=Decimal("2"))}
     )
     with pytest.raises(Validacao, match="cobv"):
         await adapter.registrar_titulo(titulo)
+
+
+async def test_falso_recusa_cob_com_devedor_completo():
+    _, falso = montar(modalidade="cob")
+    async with falso.cliente() as cliente:
+        resp = await cliente.put(
+            f"https://x{falso.base}/cob/{gerar_txid('c1', 'k')}",
+            json={
+                "calendario": {"expiracao": 60},
+                "valor": {"original": "1.00"},
+                "chave": "k",
+                "devedor": {"cpf": "52998224725", "nome": "M", "email": "m@x.com"},
+            },
+            headers={"authorization": "Bearer t"},
+        )
+    assert resp.status_code == 400
+
+
+async def test_id_e_o_txid_pedido_mesmo_se_o_psp_devolver_outro():
+    adapter, falso = montar("sicoob")
+    original = falso._resposta
+
+    def outro_txid(cob, status=200):
+        return original({**cob, "txid": "OutroTxidAleatorioDoSandbox01"}, status)
+
+    falso._resposta = outro_txid
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    esperado = gerar_txid("c1", "chave-1")
+    assert registrado.id_banco == registrado.txid == esperado
+    consultado = await adapter.consultar_titulo(esperado)
+    assert consultado.id_banco == esperado
 
 
 async def test_registro_repetido_vira_consulta():

@@ -84,6 +84,18 @@ class PixFalso:
             if any(id_ == txid for _, id_ in self.cobrancas):
                 return httpx.Response(409, json={"title": "txid existente"})
             self.ultimo_corpo = corpo
+            extras = set(corpo.get("devedor") or {}) - {"cpf", "cnpj", "nome"}
+            if tipo == "cob" and extras:
+                # Schema do BACEN: devedor da cob so tem documento e nome. O sandbox
+                # do Sicoob responde 400 (apontando, sem razao, valor.original).
+                return httpx.Response(
+                    400,
+                    json={
+                        "type": "https://pix.bcb.gov.br/api/v2/error/CobOperacaoInvalida",
+                        "status": 400,
+                        "violacoes": [{"propriedade": "cob.devedor"}],
+                    },
+                )
             self.cobrancas[chave] = {
                 "txid": txid,
                 "status": "ATIVA",

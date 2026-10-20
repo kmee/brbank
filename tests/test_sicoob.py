@@ -1,3 +1,4 @@
+import base64
 from datetime import date
 from decimal import Decimal
 
@@ -24,7 +25,7 @@ def _config(**extra) -> SicoobConfig:
         "client_id": "cid",
         "numero_cliente": 25546454,
         "numero_conta_corrente": "123456",
-        "codigo_especie_documento": 2,
+        "codigo_especie_documento": "DM",
     }
     return SicoobConfig(**{**base, **extra})
 
@@ -43,10 +44,110 @@ def adapter(falso, dormir):
 
 def test_entry_point_e_marca_de_validacao():
     assert obter_classe("sicoob") is SicoobAdapter
-    assert SicoobAdapter.validado_sandbox is False
+    assert SicoobAdapter.validado_sandbox is True
     assert Capacidade.HIBRIDO in SicoobAdapter.capacidades
     assert Capacidade.WEBHOOK not in SicoobAdapter.capacidades
-    assert Capacidade.PDF not in SicoobAdapter.capacidades
+    assert Capacidade.PDF in SicoobAdapter.capacidades
+
+
+@pytest.mark.parametrize("especie", [2, "2", "dm", "DMXX", ""])
+def test_especie_e_sigla(especie):
+    # O sandbox respondeu 400 a codigoEspecieDocumento numerico (2026-10-20).
+    with pytest.raises(Validacao, match="sigla"):
+        SicoobAdapter(_config(codigo_especie_documento=especie))
+
+
+async def test_falso_recusa_especie_numerica_como_o_sandbox(falso):
+    async with falso.cliente() as cliente:
+        resp = await cliente.post(
+            "https://x/cobranca-bancaria/v3/boletos",
+            json={"codigoEspecieDocumento": 2},
+            headers={"client_id": "cid"},
+        )
+    assert resp.status_code == 400
+    assert resp.json()["mensagens"][0].keys() == {"codigo", "mensagem"}
+
+
+async def test_registro_le_nosso_numero_inteiro(adapter, falso):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    assert isinstance(falso.boletos[registrado.id_banco]["nossoNumero"], int)
+    assert registrado.id_banco == registrado.nosso_numero == "1001"
+    assert falso.ultimo_corpo["codigoEspecieDocumento"] == "DM"
+
+
+async def test_sem_pix_envia_codigo_2(falso, dormir):
+    adapter = SicoobAdapter(
+        _config(cadastrar_pix=False), client=falso.cliente(), dormir=dormir
+    )
+    await adapter.registrar_titulo(fazer_titulo())
+    assert falso.ultimo_corpo["codigoCadastrarPIX"] == 2
+
+
+async def test_seu_numero_acima_de_18_e_recusado(adapter):
+    titulo = fazer_titulo().model_copy(update={"seu_numero": "X" * 19})
+    with pytest.raises(Validacao, match="seuNumero"):
+        await adapter.registrar_titulo(titulo)
+
+
+async def test_campos_longos_cortados_nos_limites_do_swagger(adapter, falso):
+    titulo = fazer_titulo()
+    pagador = titulo.pagador.model_copy(
+        update={
+            "nome": "N" * 60,
+            "endereco": titulo.pagador.endereco.model_copy(
+                update={"logradouro": "L" * 60, "bairro": "B" * 40, "cidade": "C" * 50}
+            ),
+        }
+    )
+    await adapter.registrar_titulo(
+        titulo.model_copy(update={"pagador": pagador, "mensagens": ("M" * 50,)})
+    )
+    enviado = falso.ultimo_corpo
+    assert [len(enviado["pagador"][c]) for c in ("nome", "endereco", "bairro")] == [
+        50,
+        40,
+        30,
+    ]
+    assert len(enviado["pagador"]["cidade"]) == 40
+    assert enviado["mensagensInstrucao"] == ["M" * 40]
+
+
+async def test_consulta_de_inexistente_204_e_validacao(adapter):
+    with pytest.raises(Validacao) as erro:
+        await adapter.consultar_titulo("999")
+    assert erro.value.status_http == 204
+
+
+async def test_liquidacao_com_tipo_historico_numerico(adapter, falso):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    falso.boletos[registrado.id_banco]["listaHistorico"][1]["tipoHistorico"] = 6
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.valor_pago == Decimal("1150.50")
+
+
+async def test_pdf_pela_segunda_via(adapter, falso):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    pdf = await adapter.obter_pdf(registrado.id_banco)
+    assert pdf.startswith(b"%PDF")
+    assert falso.chamadas[-1] == ("GET", "/cobranca-bancaria/v3/boletos/segunda-via")
+    assert falso.ultima_query["gerarPdf"] == "true"
+    assert falso.ultima_query["nossoNumero"] == registrado.id_banco
+
+
+async def test_pdf_com_padding_em_excesso_como_no_sandbox(adapter, falso):
+    # O exemplo do sandbox (2026-10-20) traz base64 com "=" sobrando.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.pdf_base64 = base64.b64encode(b"%PDF-1.4\n").decode() + "="
+    assert (await adapter.obter_pdf(registrado.id_banco)).startswith(b"%PDF")
+
+
+@pytest.mark.parametrize("bruto", [" ", "bmFvIGUgcGRm", "%%%", "QQ"])
+async def test_pdf_ausente_ou_invalido_e_validacao(adapter, falso, bruto):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.pdf_base64 = bruto
+    with pytest.raises(Validacao, match="PDF"):
+        await adapter.obter_pdf(registrado.id_banco)
 
 
 async def test_token_sem_segredo_e_cabecalho_client_id(adapter, falso):
@@ -205,11 +306,9 @@ async def test_instrucoes_invalidas(adapter):
         )
 
 
-async def test_webhook_e_pdf_nao_suportados(adapter):
+async def test_webhook_nao_suportado(adapter):
     with pytest.raises(NaoSuportado):
         adapter.parse_webhook(b"{}")
-    with pytest.raises(NaoSuportado):
-        await adapter.obter_pdf("1")
 
 
 async def test_sandbox_com_token_fixo_nao_chama_oauth(falso, dormir):

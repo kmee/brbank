@@ -3,8 +3,8 @@
 Baseado no OpenAPI oficial do BACEN (cobranca imediata e com vencimento,
 webhook, devolucao). O que muda de PSP para PSP (host, URL do token, estilo de
 autenticacao, escopos, cabecalhos e quirks) fica em `PerfilPsp`, declarativo.
-Nenhum perfil nasce validado: `validado_sandbox = False` ate rodar contra o
-sandbox do banco.
+Perfil nasce com `validado_sandbox = False` e so muda depois de rodar contra o
+sandbox do banco. Validado: `sicoob` (2026-10-20, ver `docs/pix-duvidas.md`).
 
 Referencia de comportamento: a documentacao dos PSPs foi consultada nos fontes
 do ACBr (ACBrPIXCD, licenca LGPL) apenas como LEITURA, para saber host,
@@ -169,7 +169,11 @@ _PERFIS = (
         cabecalho_client_id="client_id",
         mtls_sandbox=False,
         alias_resposta={"brcode": "pixCopiaECola"},
-        observacoes=("sandbox usa o token fixo do portal (token_estatico)",),
+        observacoes=(
+            "sandbox usa o token fixo do portal (token_estatico)",
+            "sandbox valida o corpo e devolve dados aleatorios no formato do BACEN",
+        ),
+        validado_sandbox=True,
     ),
     PerfilPsp(
         nome="sicredi",
@@ -296,11 +300,18 @@ def gerar_txid(conta: str, chave_idempotencia: str) -> str:
     return hashlib.sha256(base).hexdigest()[:32]
 
 
-def _devedor(pessoa: Pessoa) -> dict[str, Any]:
+def _devedor(pessoa: Pessoa, *, com_endereco: bool) -> dict[str, Any]:
+    """Devedor da cobranca.
+
+    So a `cobv` aceita endereco e e-mail; na `cob` o schema do BACEN tem apenas
+    documento e nome, e o sandbox do Sicoob recusa o resto com HTTP 400.
+    """
     dados: dict[str, Any] = {
         "cpf" if pessoa.tipo == "FISICA" else "cnpj": pessoa.documento,
         "nome": pessoa.nome,
     }
+    if not com_endereco:
+        return dados
     endereco = pessoa.endereco
     if endereco is not None:
         dados.update(
@@ -453,7 +464,7 @@ class PixBacenAdapter(BankAdapter):
         corpo: dict[str, Any] = {
             "valor": valor,
             "chave": cfg.chave_pix,
-            "devedor": _devedor(titulo.pagador),
+            "devedor": _devedor(titulo.pagador, com_endereco=cfg.modalidade == "cobv"),
         }
         if titulo.mensagens or titulo.seu_numero:
             itens = [("Documento", titulo.seu_numero)]
@@ -538,13 +549,15 @@ class PixBacenAdapter(BankAdapter):
             valor_pago = sum((_dinheiro(p.get("valor")) for p in pagos), Decimal(0))
             horarios = [h for h in (_instante(p.get("horario")) for p in pagos) if h]
             data_pagamento = max(horarios).date() if horarios else None
+        # O id e sempre o txid pedido (deterministico pela chave de idempotencia):
+        # o sandbox do Sicoob devolve outro txid, aleatorio, no corpo.
         return TituloRegistrado(
             banco=self.banco,
-            id_banco=dados.get("txid") or id_banco,
+            id_banco=id_banco,
             status=status,
             seu_numero=seu_numero,
             pix_copia_cola=dados.get("pixCopiaECola"),
-            txid=dados.get("txid") or id_banco,
+            txid=id_banco,
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
             resposta_bruta=dados,
