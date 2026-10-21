@@ -16,3 +16,7 @@ class Capacidade(Flag):
     EMISSAO_ASSINCRONA = auto()
     INSTRUCAO_ASSINCRONA = auto()
     CNAB_REMESSA = auto()
+    # Assinaturas geridas pelo gateway (brbank.recorrencia).
+    RECORRENCIA = auto()
+    # Pagina hospedada para o pagador informar o cartao.
+    CHECKOUT = auto()

@@ -1,4 +1,4 @@
-"""Asaas, API v3 (gateway: boleto, Pix e fatura hospedada, chave de API).
+"""Asaas, API v3 (gateway: boleto, Pix, fatura hospedada e assinaturas).
 
 Escrito a partir da documentacao publica (docs.asaas.com) e da OpenAPI oficial
 (`https://www.asaas.com/openApi/document?version=3&languageCode=pt-BR`) em
@@ -16,12 +16,16 @@ O que muda em relacao a um banco:
   deduplica clientes: o adapter busca pelo CPF/CNPJ antes de criar.
 - Evento de webhook desconhecido, ou de outra categoria, devolve lista vazia,
   nunca erro: 15 respostas 400 seguidas pausam a fila do Asaas.
+- Assinaturas (`brbank.recorrencia`): o Asaas gera a cobranca de cada ciclo
+  (40 dias antes do vencimento, por padrao da conta) e avisa com
+  `PAYMENT_CREATED`; cartao recorrente so pelo checkout hospedado, para que
+  nenhum dado de cartao passe pela biblioteca.
 """
 
 import asyncio
 import hmac
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -38,6 +42,7 @@ from brbank.capacidades import Capacidade
 from brbank.erros import Duplicado, NaoSuportado, Validacao
 from brbank.mascara import mascarar
 from brbank.modelos import (
+    Encargos,
     EventoCanonico,
     Instrucao,
     Pessoa,
@@ -45,19 +50,40 @@ from brbank.modelos import (
     Titulo,
     TituloRegistrado,
 )
+from brbank.recorrencia import (
+    AdapterRecorrencia,
+    AlteracaoAssinatura,
+    Assinatura,
+    AssinaturaRegistrada,
+    Checkout,
+    Ciclo,
+    EventoRecorrencia,
+    MeioCobranca,
+    StatusAssinatura,
+    StatusCheckout,
+    TipoEventoRecorrencia,
+)
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte
 
 URL_PRODUCAO = "https://api.asaas.com/v3"
 URL_SANDBOX = "https://api-sandbox.asaas.com/v3"
+URL_CHECKOUT_PRODUCAO = "https://asaas.com/checkoutSession/show?id="
+URL_CHECKOUT_SANDBOX = "https://sandbox.asaas.com/checkoutSession/show?id="
 # Meios aceitos na configuracao. CREDIT_CARD exige dado de cartao no corpo
 # (escopo PCI) e fica fora: cartao entra pela fatura hospedada (UNDEFINED).
 MEIOS = ("BOLETO", "PIX", "UNDEFINED")
 _MEIOS_COM_BOLETO = ("BOLETO", "UNDEFINED")
 _MAX_DESCRICAO = 500
+_LIMITE_PAGINA = 100
 # A cota do Asaas e de 25.000 requisicoes por 12 h (0,58 req/s de media) e a
 # emissao custa 3 a 4 chamadas: 5 req/s segura um lote sem estourar o pico.
 _REQUISICOES_POR_SEGUNDO = 5.0
+# PNG 1x1 transparente: o checkout exige uma imagem por item.
+IMAGEM_PADRAO_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8"
+    "AAAAASUVORK5CYII="
+)
 
 
 def _versao() -> str:
@@ -105,6 +131,45 @@ _EVENTOS_SEM_ESTADO = frozenset(
     }
 )
 
+CICLOS = {
+    Ciclo.SEMANAL: "WEEKLY",
+    Ciclo.QUINZENAL: "BIWEEKLY",
+    Ciclo.MENSAL: "MONTHLY",
+    Ciclo.BIMESTRAL: "BIMONTHLY",
+    Ciclo.TRIMESTRAL: "QUARTERLY",
+    Ciclo.SEMESTRAL: "SEMIANNUALLY",
+    Ciclo.ANUAL: "YEARLY",
+}
+_CICLOS_DO_ASAAS = {v: k for k, v in CICLOS.items()}
+MEIOS_RECORRENCIA = {
+    MeioCobranca.BOLETO: "BOLETO",
+    MeioCobranca.PIX: "PIX",
+    MeioCobranca.CARTAO: "CREDIT_CARD",
+    MeioCobranca.INDEFINIDO: "UNDEFINED",
+}
+_MEIOS_DO_ASAAS = {v: k for k, v in MEIOS_RECORRENCIA.items()}
+_MEIOS_CHECKOUT = {MeioCobranca.CARTAO: "CREDIT_CARD", MeioCobranca.PIX: "PIX"}
+_STATUS_ASSINATURA = {
+    "ACTIVE": StatusAssinatura.ATIVA,
+    "INACTIVE": StatusAssinatura.SUSPENSA,
+    "EXPIRED": StatusAssinatura.ENCERRADA,
+}
+_STATUS_CHECKOUT = {
+    "ACTIVE": StatusCheckout.ATIVO,
+    "PAID": StatusCheckout.PAGO,
+    "CANCELED": StatusCheckout.CANCELADO,
+    "EXPIRED": StatusCheckout.EXPIRADO,
+}
+_EVENTOS_RECORRENCIA = {
+    "SUBSCRIPTION_CREATED": TipoEventoRecorrencia.CRIADA,
+    "SUBSCRIPTION_UPDATED": TipoEventoRecorrencia.ALTERADA,
+    "SUBSCRIPTION_INACTIVATED": TipoEventoRecorrencia.SUSPENSA,
+    "SUBSCRIPTION_DELETED": TipoEventoRecorrencia.ENCERRADA,
+    "CHECKOUT_PAID": TipoEventoRecorrencia.CHECKOUT_PAGO,
+    "CHECKOUT_CANCELED": TipoEventoRecorrencia.CHECKOUT_CANCELADO,
+    "CHECKOUT_EXPIRED": TipoEventoRecorrencia.CHECKOUT_EXPIRADO,
+}
+
 
 @dataclass
 class AsaasConfig:
@@ -112,11 +177,13 @@ class AsaasConfig:
 
     `api_key` e a chave gerada no painel (`$aact_prod_...` em producao,
     `$aact_hmlg_...` no sandbox; contas e chaves sao independentes).
-    `billing_type` decide o meio de cada cobranca. `webhook_auth_token` e o
-    `authToken` cadastrado no webhook do Asaas; quando preenchido, o adapter
-    exige o header `asaas-access-token` igual em cada notificacao.
+    `billing_type` decide o meio de cada cobranca avulsa. `webhook_auth_token`
+    e o `authToken` cadastrado no webhook do Asaas; quando preenchido, o
+    adapter exige o header `asaas-access-token` igual em cada notificacao.
     `desligar_notificacoes` cria o cliente com `notificationDisabled`, porque
     quem avisa o pagador e o sistema chamador, nao o Asaas.
+    `imagem_checkout_base64` e a imagem do item na pagina do checkout (PNG ou
+    JPEG em base64); vazia, vai um pixel transparente.
     """
 
     conta: str
@@ -126,6 +193,7 @@ class AsaasConfig:
     webhook_auth_token: str | None = field(default=None, repr=False)
     desligar_notificacoes: bool = True
     dias_baixa_automatica: int | None = None
+    imagem_checkout_base64: str | None = None
     requisicoes_por_segundo: float | None = _REQUISICOES_POR_SEGUNDO
 
     def __post_init__(self) -> None:
@@ -141,6 +209,14 @@ class AsaasConfig:
     @property
     def url_base(self) -> str:
         return URL_SANDBOX if self.ambiente == "sandbox" else URL_PRODUCAO
+
+    @property
+    def url_checkout(self) -> str:
+        return (
+            URL_CHECKOUT_SANDBOX
+            if self.ambiente == "sandbox"
+            else URL_CHECKOUT_PRODUCAO
+        )
 
 
 def _numero(valor: Decimal) -> float:
@@ -177,12 +253,33 @@ def _momento(texto: Any) -> datetime | None:
         return None
 
 
-def _cliente_payload(pessoa: Pessoa, desligar_notificacoes: bool) -> dict[str, Any]:
-    dados: dict[str, Any] = {
-        "name": pessoa.nome,
-        "cpfCnpj": pessoa.documento,
-        "notificationDisabled": desligar_notificacoes,
-    }
+def _descricao(seu_numero: str, mensagens: Sequence[str]) -> str:
+    """`description` guarda o numero do chamador na primeira linha."""
+    return "\n".join((seu_numero, *mensagens))[:_MAX_DESCRICAO]
+
+
+def _primeira_linha(dados: Mapping[str, Any]) -> str | None:
+    descricao = str(dados.get("description") or "")
+    return descricao.splitlines()[0] if descricao else None
+
+
+def _encargos_payload(enc: Encargos) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if enc.multa_percentual is not None:
+        payload["fine"] = {"value": _numero(enc.multa_percentual), "type": "PERCENTAGE"}
+    if enc.juros_mensal_percentual is not None:
+        payload["interest"] = {"value": _numero(enc.juros_mensal_percentual)}
+    if enc.desconto_percentual is not None and enc.desconto_dias_antes is not None:
+        payload["discount"] = {
+            "value": _numero(enc.desconto_percentual),
+            "type": "PERCENTAGE",
+            "dueDateLimitDays": enc.desconto_dias_antes,
+        }
+    return payload
+
+
+def _endereco_payload(pessoa: Pessoa) -> dict[str, Any]:
+    dados: dict[str, Any] = {}
     if pessoa.email:
         dados["email"] = pessoa.email
     endereco = pessoa.endereco
@@ -196,7 +293,16 @@ def _cliente_payload(pessoa: Pessoa, desligar_notificacoes: bool) -> dict[str, A
     return dados
 
 
-class AsaasAdapter(BankAdapter):
+def _cliente_payload(pessoa: Pessoa, desligar_notificacoes: bool) -> dict[str, Any]:
+    return {
+        "name": pessoa.nome,
+        "cpfCnpj": pessoa.documento,
+        "notificationDisabled": desligar_notificacoes,
+        **_endereco_payload(pessoa),
+    }
+
+
+class AsaasAdapter(BankAdapter, AdapterRecorrencia):
     banco: ClassVar[str] = "asaas"
     # Hibrido depende de a conta ter chave Pix cadastrada (o adapter nao
     # enxerga isso): sem chave, o QR vem vazio e o boleto segue sem Pix.
@@ -208,6 +314,8 @@ class AsaasAdapter(BankAdapter):
         | Capacidade.WEBHOOK
         | Capacidade.PIX_COB
         | Capacidade.PIX_COBV
+        | Capacidade.RECORRENCIA
+        | Capacidade.CHECKOUT
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
 
@@ -282,15 +390,56 @@ class AsaasAdapter(BankAdapter):
             raise Validacao("resposta do Asaas fora do formato", status_http=200)
         return dados
 
-    async def _listar_um(self, recurso: str, filtros: dict[str, str]) -> dict | None:
-        consulta = urlencode({**filtros, "limit": 1})
-        resp = await self._requisitar(
-            "GET", f"{recurso}?{consulta}", operacao=f"listar_{recurso}"
+    async def _listar(
+        self, recurso: str, filtros: Mapping[str, Any], *, limite: int
+    ) -> list[dict[str, Any]]:
+        """Pagina `recurso` ate `limite` itens (ou ate `hasMore` virar falso)."""
+        itens: list[dict[str, Any]] = []
+        deslocamento = 0
+        while True:
+            consulta = urlencode(
+                {
+                    **filtros,
+                    "limit": min(_LIMITE_PAGINA, limite - len(itens)),
+                    "offset": deslocamento,
+                }
+            )
+            resp = await self._requisitar(
+                "GET", f"{recurso}?{consulta}", operacao=f"listar_{recurso}"
+            )
+            dados = self._json(resp)
+            pagina = [i for i in dados.get("data") or [] if isinstance(i, dict)]
+            itens.extend(pagina)
+            deslocamento += len(pagina)
+            if not pagina or not dados.get("hasMore") or len(itens) >= limite:
+                return itens[:limite]
+
+    async def _listar_um(
+        self, recurso: str, filtros: Mapping[str, Any]
+    ) -> dict[str, Any] | None:
+        itens = await self._listar(recurso, filtros, limite=1)
+        return itens[0] if itens else None
+
+    def _conferir_token_webhook(self, cabecalhos: Mapping[str, str] | None) -> None:
+        esperado = self._config.webhook_auth_token
+        if not esperado:
+            return
+        recebido = {k.lower(): v for k, v in (cabecalhos or {}).items()}.get(
+            "asaas-access-token"
         )
-        itens = self._json(resp).get("data")
-        if isinstance(itens, list) and itens and isinstance(itens[0], dict):
-            return itens[0]
-        return None
+        if not recebido or not hmac.compare_digest(recebido, esperado):
+            raise Validacao("asaas: webhook com asaas-access-token desconhecido")
+
+    @staticmethod
+    def _corpo_webhook(corpo: bytes | str | list | dict) -> dict[str, Any]:
+        if isinstance(corpo, bytes | str):
+            try:
+                corpo = json.loads(corpo)
+            except ValueError as exc:
+                raise Validacao("webhook do Asaas nao e JSON") from exc
+        if not isinstance(corpo, dict):
+            raise Validacao("webhook do Asaas fora do formato")
+        return corpo
 
     # --- cliente ----------------------------------------------------------
 
@@ -334,14 +483,14 @@ class AsaasAdapter(BankAdapter):
             valor = valor - enc.abatimento
             if valor <= 0:
                 raise Validacao("asaas: abatimento maior ou igual ao valor do titulo")
-        descricao = "\n".join((titulo.seu_numero, *titulo.mensagens))
         payload: dict[str, Any] = {
             "customer": cliente_id,
             "billingType": cfg.billing_type,
             "value": _numero(valor),
             "dueDate": titulo.vencimento.isoformat(),
-            "description": descricao[:_MAX_DESCRICAO],
+            "description": _descricao(titulo.seu_numero, titulo.mensagens),
             "externalReference": titulo.chave_idempotencia,
+            **_encargos_payload(enc),
         }
         dias = (
             titulo.dias_baixa_automatica
@@ -350,19 +499,6 @@ class AsaasAdapter(BankAdapter):
         )
         if dias is not None and cfg.billing_type in _MEIOS_COM_BOLETO:
             payload["daysAfterDueDateToRegistrationCancellation"] = dias
-        if enc.multa_percentual is not None:
-            payload["fine"] = {
-                "value": _numero(enc.multa_percentual),
-                "type": "PERCENTAGE",
-            }
-        if enc.juros_mensal_percentual is not None:
-            payload["interest"] = {"value": _numero(enc.juros_mensal_percentual)}
-        if enc.desconto_percentual is not None and enc.desconto_dias_antes is not None:
-            payload["discount"] = {
-                "value": _numero(enc.desconto_percentual),
-                "type": "PERCENTAGE",
-                "dueDateLimitDays": enc.desconto_dias_antes,
-            }
         return payload
 
     def _status(
@@ -399,23 +535,25 @@ class AsaasAdapter(BankAdapter):
         return self._json(resp).get("payload") or None
 
     async def _montar_registrado(
-        self, id_banco: str, dados: dict[str, Any]
+        self, id_banco: str, dados: dict[str, Any], *, detalhar: bool = True
     ) -> TituloRegistrado:
+        """`detalhar` busca linha digitavel e QR do titulo em aberto (duas
+        chamadas a mais); a listagem de uma assinatura dispensa."""
         status = self._status(dados, estrito=True)
         meio = str(dados.get("billingType") or self._config.billing_type)
         linha: dict[str, Any] = {}
         pix = None
-        if status in (StatusCanonico.REGISTRADO, StatusCanonico.PENDENTE_REGISTRO):
+        aberto = status in (StatusCanonico.REGISTRADO, StatusCanonico.PENDENTE_REGISTRO)
+        if detalhar and aberto:
             if meio in _MEIOS_COM_BOLETO:
                 linha = await self._linha_digitavel(id_banco)
             pix = await self._pix(id_banco, obrigatorio=(meio == "PIX"))
         liquidado = status is StatusCanonico.LIQUIDADO
-        descricao = str(dados.get("description") or "")
         return TituloRegistrado(
             banco=self.banco,
             id_banco=id_banco,
             status=status,
-            seu_numero=descricao.splitlines()[0] if descricao else None,
+            seu_numero=_primeira_linha(dados),
             nosso_numero=linha.get("nossoNumero") or dados.get("nossoNumero") or None,
             linha_digitavel=linha.get("identificationField") or None,
             codigo_barras=linha.get("barCode") or None,
@@ -530,7 +668,7 @@ class AsaasAdapter(BankAdapter):
             )
         return resp.content
 
-    # --- webhook ----------------------------------------------------------
+    # --- webhook de cobranca -----------------------------------------------
 
     def parse_webhook(
         self,
@@ -542,22 +680,11 @@ class AsaasAdapter(BankAdapter):
         O tipo canonico sai do `payment.status` (e de `deleted`), nao do nome
         do evento: assim um evento novo do Asaas com status conhecido ainda e
         aproveitado, e um status novo so e ignorado. Nao confirma pagamento:
-        o chamador reconsulta.
+        o chamador reconsulta. Cobranca gerada por assinatura traz
+        `id_recorrencia`.
         """
-        esperado = self._config.webhook_auth_token
-        if esperado:
-            recebido = {k.lower(): v for k, v in (cabecalhos or {}).items()}.get(
-                "asaas-access-token"
-            )
-            if not recebido or not hmac.compare_digest(recebido, esperado):
-                raise Validacao("asaas: webhook com asaas-access-token desconhecido")
-        if isinstance(corpo, bytes | str):
-            try:
-                corpo = json.loads(corpo)
-            except ValueError as exc:
-                raise Validacao("webhook do Asaas nao e JSON") from exc
-        if not isinstance(corpo, dict):
-            raise Validacao("webhook do Asaas fora do formato")
+        self._conferir_token_webhook(cabecalhos)
+        corpo = self._corpo_webhook(corpo)
         evento = str(corpo.get("event") or "")
         pagamento = corpo.get("payment")
         if (
@@ -581,6 +708,291 @@ class AsaasAdapter(BankAdapter):
                     if tipo is StatusCanonico.LIQUIDADO
                     else None
                 ),
+                id_recorrencia=(
+                    str(pagamento["subscription"])
+                    if pagamento.get("subscription")
+                    else None
+                ),
+                resposta_bruta=mascarar(corpo),
+            )
+        ]
+
+    # --- assinaturas (brbank.recorrencia) ---------------------------------
+
+    def _assinatura_registrada(self, dados: dict[str, Any]) -> AssinaturaRegistrada:
+        if dados.get("deleted") is True:
+            status = StatusAssinatura.ENCERRADA
+        else:
+            status = _STATUS_ASSINATURA.get(str(dados.get("status") or "").upper())
+            if status is None:
+                raise Validacao(
+                    f"asaas: status de assinatura {dados.get('status')!r} desconhecido",
+                    resposta_bruta=dados,
+                )
+        return AssinaturaRegistrada(
+            banco=self.banco,
+            id_banco=str(dados.get("id") or ""),
+            status=status,
+            seu_numero=_primeira_linha(dados),
+            valor=_dinheiro(dados.get("value")),
+            ciclo=_CICLOS_DO_ASAAS.get(str(dados.get("cycle") or "")),
+            proximo_vencimento=_data(dados.get("nextDueDate")),
+            data_fim=_data(dados.get("endDate")),
+            meio=_MEIOS_DO_ASAAS.get(str(dados.get("billingType") or "")),
+            id_checkout=str(dados["checkoutSession"])
+            if dados.get("checkoutSession")
+            else None,
+            resposta_bruta=dados,
+        )
+
+    async def _consultar_assinatura_bruta(self, id_banco: str) -> dict[str, Any]:
+        resp = await self._requisitar(
+            "GET", f"subscriptions/{id_banco}", operacao="consultar_assinatura"
+        )
+        return self._json(resp)
+
+    async def criar_assinatura(self, assinatura: Assinatura) -> AssinaturaRegistrada:
+        if assinatura.meio is MeioCobranca.CARTAO:
+            raise NaoSuportado(
+                "asaas: assinatura de cartao so pelo checkout hospedado "
+                "(criar_checkout); dado de cartao nao passa pela biblioteca"
+            )
+        existente = await self._listar_um(
+            "subscriptions", {"externalReference": assinatura.chave_idempotencia}
+        )
+        if existente and existente.get("id"):
+            raise Duplicado(
+                "asaas: ja existe assinatura com esta chave de idempotencia",
+                id_banco=str(existente["id"]),
+                resposta_bruta=existente,
+            )
+        cliente_id = await self._garantir_cliente(assinatura.pagador)
+        payload: dict[str, Any] = {
+            "customer": cliente_id,
+            "billingType": MEIOS_RECORRENCIA[assinatura.meio],
+            "value": _numero(assinatura.valor),
+            "nextDueDate": assinatura.primeiro_vencimento.isoformat(),
+            "cycle": CICLOS[assinatura.ciclo],
+            "description": _descricao(assinatura.seu_numero, assinatura.mensagens),
+            "externalReference": assinatura.chave_idempotencia,
+            **_encargos_payload(assinatura.encargos),
+        }
+        if assinatura.data_fim is not None:
+            payload["endDate"] = assinatura.data_fim.isoformat()
+        if assinatura.maximo_cobrancas is not None:
+            payload["maxPayments"] = assinatura.maximo_cobrancas
+        resp = await self._requisitar(
+            "POST", "subscriptions", operacao="criar_assinatura", json=payload
+        )
+        dados = self._json(resp)
+        if not dados.get("id"):
+            raise Validacao(
+                "resposta do Asaas sem id da assinatura",
+                status_http=resp.status_code,
+                resposta_bruta=dados,
+            )
+        registrada = self._assinatura_registrada(dados)
+        return registrada.model_copy(update={"seu_numero": assinatura.seu_numero})
+
+    async def consultar_assinatura(self, id_banco: str) -> AssinaturaRegistrada:
+        return self._assinatura_registrada(
+            await self._consultar_assinatura_bruta(id_banco)
+        )
+
+    async def alterar_assinatura(
+        self, id_banco: str, alteracao: AlteracaoAssinatura
+    ) -> AssinaturaRegistrada:
+        """`PUT /subscriptions/{id}`. Por padrao vale so para as proximas
+        cobrancas; `aplicar_nas_pendentes` leva tambem as ja geradas.
+
+        `value` nao consta no schema de atualizacao da OpenAPI, mas o FAQ diz
+        que o valor muda: e enviado, e o sandbox decide (docs/asaas-duvidas.md).
+        """
+        if alteracao.meio is MeioCobranca.CARTAO:
+            raise NaoSuportado("asaas: trocar para cartao exige o checkout hospedado")
+        corpo: dict[str, Any] = {}
+        if alteracao.valor is not None:
+            corpo["value"] = _numero(alteracao.valor)
+        if alteracao.ciclo is not None:
+            corpo["cycle"] = CICLOS[alteracao.ciclo]
+        if alteracao.proximo_vencimento is not None:
+            corpo["nextDueDate"] = alteracao.proximo_vencimento.isoformat()
+        if alteracao.data_fim is not None:
+            corpo["endDate"] = alteracao.data_fim.isoformat()
+        if alteracao.meio is not None:
+            corpo["billingType"] = MEIOS_RECORRENCIA[alteracao.meio]
+        if alteracao.encargos is not None:
+            corpo.update(_encargos_payload(alteracao.encargos))
+        if alteracao.mensagens is not None:
+            atual = await self._consultar_assinatura_bruta(id_banco)
+            corpo["description"] = _descricao(
+                _primeira_linha(atual) or id_banco, alteracao.mensagens
+            )
+        if not corpo:
+            raise Validacao("asaas: alteracao de assinatura sem nenhum campo")
+        if alteracao.aplicar_nas_pendentes:
+            corpo["updatePendingPayments"] = True
+        await self._requisitar(
+            "PUT",
+            f"subscriptions/{id_banco}",
+            operacao="alterar_assinatura",
+            json=corpo,
+        )
+        return await self.consultar_assinatura(id_banco)
+
+    async def suspender_assinatura(self, id_banco: str) -> AssinaturaRegistrada:
+        await self._requisitar(
+            "PUT",
+            f"subscriptions/{id_banco}",
+            operacao="suspender_assinatura",
+            json={"status": "INACTIVE"},
+        )
+        return await self.consultar_assinatura(id_banco)
+
+    async def reativar_assinatura(
+        self, id_banco: str, proximo_vencimento: date
+    ) -> AssinaturaRegistrada:
+        # O Asaas exige um novo nextDueDate para voltar a ACTIVE.
+        await self._requisitar(
+            "PUT",
+            f"subscriptions/{id_banco}",
+            operacao="reativar_assinatura",
+            json={"status": "ACTIVE", "nextDueDate": proximo_vencimento.isoformat()},
+        )
+        return await self.consultar_assinatura(id_banco)
+
+    async def encerrar_assinatura(self, id_banco: str) -> AssinaturaRegistrada:
+        """`DELETE` encerra e remove as cobrancas pendentes e vencidas."""
+        await self._requisitar(
+            "DELETE", f"subscriptions/{id_banco}", operacao="encerrar_assinatura"
+        )
+        return AssinaturaRegistrada(
+            banco=self.banco, id_banco=id_banco, status=StatusAssinatura.ENCERRADA
+        )
+
+    async def listar_cobrancas(self, id_banco: str) -> list[TituloRegistrado]:
+        itens = await self._listar(
+            f"subscriptions/{id_banco}/payments", {}, limite=10 * _LIMITE_PAGINA
+        )
+        return [
+            await self._montar_registrado(str(item["id"]), item, detalhar=False)
+            for item in itens
+            if item.get("id")
+        ]
+
+    async def criar_checkout(
+        self,
+        assinatura: Assinatura,
+        *,
+        url_sucesso: str,
+        url_cancelamento: str,
+        url_expiracao: str | None = None,
+        meios: Sequence[MeioCobranca] = (MeioCobranca.CARTAO,),
+        minutos_validade: int = 60,
+    ) -> Checkout:
+        """`POST /checkouts` com `chargeTypes: RECURRENT`: o pagador informa o
+        cartao na pagina do Asaas e a assinatura nasce la (eventos
+        `CHECKOUT_PAID` e `SUBSCRIPTION_CREATED`, ligados por
+        `checkoutSession`). Aceita cartao e Pix, nunca boleto."""
+        try:
+            meios_asaas = [_MEIOS_CHECKOUT[meio] for meio in meios]
+        except KeyError as exc:
+            raise Validacao("asaas: o checkout aceita so cartao e Pix") from exc
+        if not meios_asaas:
+            raise Validacao("asaas: checkout sem meio de pagamento")
+        if not 10 <= minutos_validade <= 1440:
+            raise Validacao("asaas: minutos_validade entre 10 e 1440")
+        callback: dict[str, str] = {
+            "successUrl": url_sucesso,
+            "cancelUrl": url_cancelamento,
+        }
+        if url_expiracao:
+            callback["expiredUrl"] = url_expiracao
+        assinatura_payload: dict[str, Any] = {
+            "cycle": CICLOS[assinatura.ciclo],
+            # A documentacao mostra data e hora neste campo.
+            "nextDueDate": f"{assinatura.primeiro_vencimento.isoformat()} 00:00:00",
+        }
+        if assinatura.data_fim is not None:
+            assinatura_payload["endDate"] = (
+                f"{assinatura.data_fim.isoformat()} 00:00:00"
+            )
+        payload: dict[str, Any] = {
+            "billingTypes": meios_asaas,
+            "chargeTypes": ["RECURRENT"],
+            "minutesToExpire": minutos_validade,
+            "externalReference": assinatura.chave_idempotencia,
+            "callback": callback,
+            "items": [
+                {
+                    "name": assinatura.seu_numero,
+                    "description": "\n".join(assinatura.mensagens) or None,
+                    "quantity": 1,
+                    "value": _numero(assinatura.valor),
+                    "imageBase64": self._config.imagem_checkout_base64
+                    or IMAGEM_PADRAO_BASE64,
+                }
+            ],
+            "customerData": {
+                "name": assinatura.pagador.nome,
+                "cpfCnpj": assinatura.pagador.documento,
+                **_endereco_payload(assinatura.pagador),
+            },
+            "subscription": assinatura_payload,
+        }
+        resp = await self._requisitar(
+            "POST", "checkouts", operacao="criar_checkout", json=payload
+        )
+        dados = self._json(resp)
+        id_banco = dados.get("id")
+        if not id_banco:
+            raise Validacao(
+                "resposta do Asaas sem id do checkout",
+                status_http=resp.status_code,
+                resposta_bruta=dados,
+            )
+        status = _STATUS_CHECKOUT.get(str(dados.get("status") or "ACTIVE").upper())
+        return Checkout(
+            banco=self.banco,
+            id_banco=str(id_banco),
+            url=dados.get("link") or f"{self._config.url_checkout}{id_banco}",
+            status=status or StatusCheckout.ATIVO,
+            resposta_bruta=dados,
+        )
+
+    def parse_webhook_recorrencia(
+        self,
+        corpo: bytes | str | list | dict,
+        cabecalhos: Mapping[str, str] | None = None,
+    ) -> list[EventoRecorrencia]:
+        """`SUBSCRIPTION_*` (objeto `subscription`) e `CHECKOUT_*` (objeto
+        `checkout`). O resto, inclusive `PAYMENT_*`, devolve lista vazia."""
+        self._conferir_token_webhook(cabecalhos)
+        corpo = self._corpo_webhook(corpo)
+        evento = str(corpo.get("event") or "")
+        tipo = _EVENTOS_RECORRENCIA.get(evento)
+        if tipo is None:
+            return []
+        chave = "checkout" if evento.startswith("CHECKOUT_") else "subscription"
+        objeto = corpo.get(chave)
+        if not isinstance(objeto, dict) or not objeto.get("id"):
+            return []
+        id_checkout = (
+            str(objeto["id"])
+            if chave == "checkout"
+            else (
+                str(objeto["checkoutSession"])
+                if objeto.get("checkoutSession")
+                else None
+            )
+        )
+        return [
+            EventoRecorrencia(
+                banco=self.banco,
+                referencia=str(objeto["id"]),
+                tipo=tipo,
+                ocorrido_em=_momento(corpo.get("dateCreated")),
+                id_checkout=id_checkout,
                 resposta_bruta=mascarar(corpo),
             )
         ]

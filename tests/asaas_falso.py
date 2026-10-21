@@ -10,9 +10,18 @@ conta tem chave Pix ou o meio e PIX), `PUT` exige `billingType`, `value` e
 cobranca removida continua legivel com `deleted: true`, erro de negocio em
 `errors[{code, description}]`, e `POST /sandbox/payment/{id}/confirm` liquida.
 O PDF e servido fora da API, no host do `bankSlipUrl`, sem chave.
+
+Assinaturas: `POST /subscriptions` nasce `ACTIVE`; as cobrancas de cada ciclo
+sao geradas por `gerar_ciclos` (o que o Asaas faz 40 dias antes do
+vencimento) ou pelo carne (`GET /subscriptions/{id}/paymentBook`, que no
+sandbox antecipa a criacao); `PUT` aceita `status`, `nextDueDate`, `cycle`,
+`value` e `updatePendingPayments`; `DELETE` remove as cobrancas abertas.
+Checkout: `POST /checkouts` exige `imageBase64` por item e `callback`;
+`pagar_checkout` simula o pagador e cria a assinatura com `checkoutSession`.
 """
 
 import json
+from datetime import date, timedelta
 
 import httpx
 
@@ -20,6 +29,15 @@ CHAVE_API = "$aact_hmlg_chave-falsa-000"
 HOST_PDF = "https://sandbox.asaas.com"
 PDF = b"%PDF-1.4\n% boleto falso do asaas\n"
 MEIOS = ("UNDEFINED", "BOLETO", "CREDIT_CARD", "PIX")
+CICLOS = {
+    "WEEKLY": 7,
+    "BIWEEKLY": 14,
+    "MONTHLY": 30,
+    "BIMONTHLY": 61,
+    "QUARTERLY": 91,
+    "SEMIANNUALLY": 182,
+    "YEARLY": 365,
+}
 _SITUACOES = {
     "PAGO": ("PAYMENT_RECEIVED", "RECEIVED", False),
     "CONFIRMADO": ("PAYMENT_CONFIRMED", "CONFIRMED", False),
@@ -27,6 +45,11 @@ _SITUACOES = {
     "REMOVIDO": ("PAYMENT_DELETED", "PENDING", True),
     "ESTORNADO": ("PAYMENT_REFUNDED", "REFUNDED", False),
 }
+
+
+def _proximo_vencimento(vencimento: str, ciclo: str) -> str:
+    # Aproximacao em dias; o teste so precisa de datas crescentes.
+    return (date.fromisoformat(vencimento) + timedelta(days=CICLOS[ciclo])).isoformat()
 
 
 def _erro(status: int, codigo: str, descricao: str) -> httpx.Response:
@@ -78,12 +101,68 @@ def webhook(
     ).encode()
 
 
+def webhook_assinatura(
+    id_banco: str, evento: str = "SUBSCRIPTION_CREATED", *, checkout: str | None = None
+) -> bytes:
+    return json.dumps(
+        {
+            "id": f"evt_{id_banco}_{evento.lower()}",
+            "event": evento,
+            "dateCreated": "2026-12-01 09:00:00",
+            "account": {"id": "conta-falsa", "ownerId": None},
+            "subscription": {
+                "object": "subscription",
+                "id": id_banco,
+                "customer": "cus_000001",
+                "value": 99.9,
+                "nextDueDate": "2027-01-10",
+                "cycle": "MONTHLY",
+                "billingType": "CREDIT_CARD",
+                "status": (
+                    "INACTIVE" if evento == "SUBSCRIPTION_INACTIVATED" else "ACTIVE"
+                ),
+                "deleted": evento == "SUBSCRIPTION_DELETED",
+                "externalReference": "contrato-1",
+                "checkoutSession": checkout,
+            },
+        }
+    ).encode()
+
+
+def webhook_checkout(id_banco: str, evento: str = "CHECKOUT_PAID") -> bytes:
+    status = {
+        "CHECKOUT_CREATED": "ACTIVE",
+        "CHECKOUT_PAID": "PAID",
+        "CHECKOUT_CANCELED": "CANCELED",
+        "CHECKOUT_EXPIRED": "EXPIRED",
+    }[evento]
+    return json.dumps(
+        {
+            "id": f"evt_{id_banco}_{evento.lower()}",
+            "event": evento,
+            "dateCreated": "2026-12-01 09:05:00",
+            "account": {"id": "conta-falsa", "ownerId": None},
+            "checkout": {
+                "id": id_banco,
+                "link": None,
+                "status": status,
+                "chargeTypes": ["RECURRENT"],
+                "billingTypes": ["CREDIT_CARD"],
+                "subscription": {"cycle": "MONTHLY", "nextDueDate": "2027-01-10"},
+                "customer": "cus_000001",
+            },
+        }
+    ).encode()
+
+
 class AsaasFalso:
     def __init__(self, *, chave: str = CHAVE_API, com_chave_pix: bool = True) -> None:
         self.chave = chave
         self.com_chave_pix = com_chave_pix
         self.clientes: dict[str, dict] = {}
         self.cobrancas: dict[str, dict] = {}
+        self.assinaturas: dict[str, dict] = {}
+        self.checkouts: dict[str, dict] = {}
         self.chamadas: list[tuple[str, str]] = []
         self.ultimo_cabecalho: dict[str, str] = {}
         self.ultimo_corpo: dict = {}
@@ -117,7 +196,56 @@ class AsaasFalso:
     def vencer(self, id_banco: str) -> None:
         self.cobrancas[id_banco]["status"] = "OVERDUE"
 
-    # --- rotas --------------------------------------------------------------
+    def gerar_ciclos(self, assinatura_id: str, quantidade: int) -> list[str]:
+        """Cria as proximas cobrancas da assinatura, como o Asaas faz 40 dias
+        antes de cada vencimento (ou pelo carne, no sandbox)."""
+        assinatura = self.assinaturas[assinatura_id]
+        criadas = []
+        for _ in range(quantidade):
+            if assinatura["status"] != "ACTIVE" or assinatura["deleted"]:
+                break
+            vencimento = assinatura["nextDueDate"]
+            resp = self._criar_cobranca(
+                {
+                    "customer": assinatura["customer"],
+                    "billingType": assinatura["billingType"],
+                    "value": assinatura["value"],
+                    "dueDate": vencimento,
+                    "description": assinatura.get("description"),
+                    "subscription": assinatura_id,
+                }
+            )
+            cobranca_id = json.loads(resp.content)["id"]
+            criadas.append(cobranca_id)
+            assinatura["nextDueDate"] = _proximo_vencimento(
+                vencimento, assinatura["cycle"]
+            )
+        return criadas
+
+    def pagar_checkout(self, checkout_id: str) -> str:
+        """Simula o pagador concluindo o checkout: cria a assinatura ligada."""
+        checkout = self.checkouts[checkout_id]
+        checkout["status"] = "PAID"
+        dados = checkout["customerData"] or {}
+        cliente_id = self.cadastrar_cliente(
+            dados.get("cpfCnpj", "00000000000"), name=dados.get("name", "")
+        )
+        resp = self._criar_assinatura(
+            {
+                "customer": cliente_id,
+                "billingType": checkout["billingTypes"][0],
+                "cycle": checkout["subscription"]["cycle"],
+                "value": checkout["items"][0]["value"],
+                "nextDueDate": checkout["subscription"]["nextDueDate"][:10],
+                "endDate": (checkout["subscription"].get("endDate") or "")[:10] or None,
+                "description": checkout["items"][0]["name"],
+                "_checkoutSession": checkout_id,
+                "_cartao": True,
+            }
+        )
+        return json.loads(resp.content)["id"]
+
+    # --- clientes -------------------------------------------------------------
 
     def _clientes(self, request: httpx.Request) -> httpx.Response:
         documento = request.url.params.get("cpfCnpj")
@@ -140,6 +268,8 @@ class AsaasFalso:
         )
         return httpx.Response(200, json=self.clientes[cliente_id])
 
+    # --- cobrancas ------------------------------------------------------------
+
     def _listar_cobrancas(self, request: httpx.Request) -> httpx.Response:
         params = request.url.params
         itens = [
@@ -159,7 +289,7 @@ class AsaasFalso:
             return _erro(400, "invalid_customer", "Cliente invalido ou nao informado.")
         if corpo.get("billingType") not in MEIOS:
             return _erro(400, "invalid_billingType", "Forma de pagamento invalida.")
-        if corpo.get("billingType") == "CREDIT_CARD":
+        if corpo.get("billingType") == "CREDIT_CARD" and not corpo.get("subscription"):
             return _erro(400, "invalid_creditCard", "Dados do cartao nao informados.")
         if not corpo.get("value") or corpo["value"] <= 0:
             return _erro(400, "invalid_value", "O campo value deve ser informado.")
@@ -175,7 +305,7 @@ class AsaasFalso:
             "id": cobranca_id,
             "dateCreated": "2026-11-01",
             "customer": corpo["customer"],
-            "subscription": None,
+            "subscription": corpo.get("subscription"),
             "value": corpo["value"],
             "netValue": round(corpo["value"] - 1.99, 2),
             "originalValue": None,
@@ -261,6 +391,179 @@ class AsaasFalso:
             return httpx.Response(200, json=cobranca)
         return _erro(404, "invalid_action", "Rota desconhecida.")
 
+    # --- assinaturas ----------------------------------------------------------
+
+    def _listar_assinaturas(self, request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        itens = [
+            a
+            for a in self.assinaturas.values()
+            if all(
+                not params.get(chave) or str(a.get(chave)) == params.get(chave)
+                for chave in ("externalReference", "customer", "status", "billingType")
+            )
+        ]
+        return _lista(itens)
+
+    def _criar_assinatura(self, corpo) -> httpx.Response:
+        if not isinstance(corpo, dict):
+            return _erro(400, "invalid_object", "Corpo invalido.")
+        if corpo.get("customer") not in self.clientes:
+            return _erro(400, "invalid_customer", "Cliente invalido ou nao informado.")
+        if corpo.get("billingType") not in MEIOS:
+            return _erro(400, "invalid_billingType", "Forma de pagamento invalida.")
+        if corpo.get("billingType") == "CREDIT_CARD" and not (
+            corpo.get("creditCard") or corpo.get("_cartao")
+        ):
+            return _erro(400, "invalid_creditCard", "Dados do cartao nao informados.")
+        if corpo.get("cycle") not in CICLOS:
+            return _erro(400, "invalid_cycle", "Periodicidade invalida.")
+        if not corpo.get("value") or corpo["value"] <= 0:
+            return _erro(400, "invalid_value", "O campo value deve ser informado.")
+        if not corpo.get("nextDueDate"):
+            return _erro(400, "invalid_nextDueDate", "Informe o vencimento.")
+        numero = len(self.assinaturas) + 1
+        assinatura_id = f"sub_{numero:012d}"
+        assinatura = {
+            "object": "subscription",
+            "id": assinatura_id,
+            "dateCreated": "2026-11-01",
+            "customer": corpo["customer"],
+            "paymentLink": None,
+            "billingType": corpo["billingType"],
+            "cycle": corpo["cycle"],
+            "value": corpo["value"],
+            "nextDueDate": corpo["nextDueDate"],
+            "endDate": corpo.get("endDate"),
+            "description": corpo.get("description"),
+            "status": "ACTIVE",
+            "discount": corpo.get("discount"),
+            "fine": corpo.get("fine"),
+            "interest": corpo.get("interest"),
+            "deleted": False,
+            "maxPayments": corpo.get("maxPayments"),
+            "externalReference": corpo.get("externalReference"),
+            "checkoutSession": corpo.get("_checkoutSession"),
+        }
+        self.assinaturas[assinatura_id] = assinatura
+        return httpx.Response(200, json=assinatura)
+
+    def _assinatura(self, request: httpx.Request, partes: list[str], corpo):
+        assinatura_id = partes[2]
+        assinatura = self.assinaturas.get(assinatura_id)
+        if assinatura is None:
+            return _erro(404, "invalid_action", "Assinatura nao encontrada.")
+        acao = partes[3] if len(partes) > 3 else ""
+        metodo = request.method
+        if metodo == "GET" and not acao:
+            return httpx.Response(200, json=assinatura)
+        if metodo == "GET" and acao == "payments":
+            status = request.url.params.get("status")
+            itens = [
+                c
+                for c in self.cobrancas.values()
+                if c.get("subscription") == assinatura_id
+                and (not status or c["status"] == status)
+            ]
+            return _lista(itens)
+        if metodo == "GET" and acao == "paymentBook":
+            mes = int(request.url.params.get("month", "12"))
+            ano = int(request.url.params.get("year", "2027"))
+            limite = f"{ano:04d}-{mes:02d}-31"
+            while (
+                assinatura["status"] == "ACTIVE"
+                and not assinatura["deleted"]
+                and assinatura["nextDueDate"] <= limite
+            ):
+                self.gerar_ciclos(assinatura_id, 1)
+            return httpx.Response(200, content=PDF)
+        if metodo == "PUT" and not acao:
+            if not isinstance(corpo, dict):
+                return _erro(400, "invalid_object", "Corpo invalido.")
+            reativando = (
+                corpo.get("status") == "ACTIVE" and assinatura["status"] != "ACTIVE"
+            )
+            if reativando and not corpo.get("nextDueDate"):
+                return _erro(400, "invalid_nextDueDate", "Informe o novo vencimento.")
+            if "cycle" in corpo and corpo["cycle"] not in CICLOS:
+                return _erro(400, "invalid_cycle", "Periodicidade invalida.")
+            for chave in (
+                "billingType",
+                "status",
+                "nextDueDate",
+                "cycle",
+                "endDate",
+                "description",
+                "externalReference",
+                "discount",
+                "fine",
+                "interest",
+                "value",
+            ):
+                if chave in corpo:
+                    assinatura[chave] = corpo[chave]
+            if corpo.get("updatePendingPayments"):
+                for cobranca in self.cobrancas.values():
+                    if (
+                        cobranca.get("subscription") == assinatura_id
+                        and cobranca["status"] in ("PENDING", "OVERDUE")
+                        and not cobranca["deleted"]
+                    ):
+                        for chave in ("value", "billingType", "description"):
+                            if chave in corpo:
+                                cobranca[chave] = corpo[chave]
+            return httpx.Response(200, json=assinatura)
+        if metodo == "DELETE" and not acao:
+            assinatura["deleted"] = True
+            for cobranca in self.cobrancas.values():
+                if cobranca.get("subscription") == assinatura_id and cobranca[
+                    "status"
+                ] in ("PENDING", "OVERDUE"):
+                    cobranca["deleted"] = True
+            return httpx.Response(200, json={"deleted": True, "id": assinatura_id})
+        return _erro(404, "invalid_action", "Rota desconhecida.")
+
+    # --- checkout -------------------------------------------------------------
+
+    def _criar_checkout(self, corpo) -> httpx.Response:
+        if not isinstance(corpo, dict):
+            return _erro(400, "invalid_object", "Corpo invalido.")
+        for campo in ("billingTypes", "chargeTypes", "callback", "items"):
+            if not corpo.get(campo):
+                return _erro(400, f"invalid_{campo}", f"Informe {campo}.")
+        if any(not item.get("imageBase64") for item in corpo["items"]):
+            return _erro(400, "invalid_items", "Cada item exige imageBase64.")
+        if any(not corpo["callback"].get(c) for c in ("successUrl", "cancelUrl")):
+            return _erro(400, "invalid_callback", "successUrl e cancelUrl.")
+        if "RECURRENT" in corpo["chargeTypes"] and not corpo.get("subscription"):
+            return _erro(400, "invalid_subscription", "Checkout recorrente sem dados.")
+        if set(corpo["billingTypes"]) - {"CREDIT_CARD", "PIX"}:
+            return _erro(400, "invalid_billingTypes", "So cartao e Pix.")
+        numero = len(self.checkouts) + 1
+        checkout_id = f"00000000-0000-4000-8000-{numero:012d}"
+        checkout = {
+            "id": checkout_id,
+            "link": f"https://sandbox.asaas.com/checkoutSession/show?id={checkout_id}",
+            "status": "ACTIVE",
+            "billingTypes": corpo["billingTypes"],
+            "chargeTypes": corpo["chargeTypes"],
+            "minutesToExpire": corpo.get("minutesToExpire"),
+            "externalReference": corpo.get("externalReference"),
+            "callback": corpo["callback"],
+            "items": [
+                {k: v for k, v in item.items() if k != "imageBase64"}
+                for item in corpo["items"]
+            ],
+            "customerData": corpo.get("customerData"),
+            "subscription": corpo.get("subscription"),
+            "installment": corpo.get("installment"),
+            "split": corpo.get("splits"),
+        }
+        self.checkouts[checkout_id] = checkout
+        return httpx.Response(200, json=checkout)
+
+    # --- despacho ---------------------------------------------------------------
+
     def tratar(self, request: httpx.Request) -> httpx.Response:
         caminho = request.url.path
         self.chamadas.append((request.method, caminho))
@@ -298,6 +601,21 @@ class AsaasFalso:
             if len(partes) == 2 and request.method == "POST":
                 return self._criar_cobranca(corpo)
             return self._cobranca(request, partes, corpo)
+        if partes[:2] == ["v3", "subscriptions"]:
+            if len(partes) == 2 and request.method == "GET":
+                return self._listar_assinaturas(request)
+            if len(partes) == 2 and request.method == "POST":
+                return self._criar_assinatura(corpo)
+            return self._assinatura(request, partes, corpo)
+        if partes[:2] == ["v3", "checkouts"]:
+            if len(partes) == 2 and request.method == "POST":
+                return self._criar_checkout(corpo)
+            if len(partes) == 4 and partes[3] == "cancel":
+                checkout = self.checkouts.get(partes[2])
+                if checkout is None:
+                    return _erro(404, "invalid_action", "Checkout nao encontrado.")
+                checkout["status"] = "CANCELED"
+                return httpx.Response(200, json=checkout)
         if partes[:3] == ["v3", "sandbox", "payment"] and len(partes) == 5:
             if partes[3] not in self.cobrancas:
                 return _erro(404, "invalid_action", "Cobranca nao encontrada.")

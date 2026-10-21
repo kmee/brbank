@@ -45,7 +45,12 @@ Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, co
 Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
 
 O Asaas e o primeiro gateway: um adapter de cobranca por API key, sem convenio bancario, que serve
-boleto, Pix ou a fatura hospedada (`billing_type` da configuracao). Fora desta lista por enquanto:
+boleto, Pix ou a fatura hospedada (`billing_type` da configuracao). Ele tambem implementa o protocolo
+opcional de **recorrencia** (`brbank.recorrencia`, capacidade `RECORRENCIA`): `criar_assinatura`,
+`alterar_assinatura`, `suspender`, `reativar`, `encerrar`, `listar_cobrancas` e, para cartao sem dado
+de cartao na biblioteca, `criar_checkout` (pagina hospedada, capacidade `CHECKOUT`). O gateway gera a
+cobranca de cada ciclo e avisa pelo webhook de cobranca (`EventoCanonico.id_recorrencia`); os eventos
+de assinatura e de checkout chegam por `parse_webhook_recorrencia`. Fora desta lista por enquanto:
 BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda), o boleto hibrido do Bradesco e
 a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
