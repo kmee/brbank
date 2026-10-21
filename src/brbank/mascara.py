@@ -67,6 +67,20 @@ _CHAVES_SENSIVEIS = frozenset(
         "authorization",
         "senha",
         "password",
+        # Asaas (cliente, cartao, QR e webhook).
+        "postalcode",
+        "addressnumber",
+        "addresscomplement",
+        "complement",
+        "province",
+        "mobilephone",
+        "holdername",
+        "ccv",
+        "creditcardnumber",
+        "creditcardtoken",
+        "asaasaccesstoken",
+        "payload",
+        "encodedimage",
     }
 )
 

@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
+from brbank.adapters.asaas import AsaasAdapter, AsaasConfig
 from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from brbank.adapters.bradesco import BradescoAdapter, BradescoConfig
@@ -28,7 +29,8 @@ from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
-from tests import unicred_falso
+from tests import asaas_falso, unicred_falso
+from tests.asaas_falso import AsaasFalso
 from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
 from tests.bradesco_falso import BradescoFalso
@@ -55,6 +57,14 @@ class Fabrica:
     # HTTP esperado para titulo inexistente; None quando o banco (SOAP) devolve
     # o erro de negocio com HTTP 200 e o adapter recusa o id antes da chamada.
     status_inexistente: int | None = 404
+
+
+def _asaas(dormir):
+    falso = AsaasFalso()
+    config = AsaasConfig(
+        conta="conta-asaas", api_key=asaas_falso.CHAVE_API, ambiente="sandbox"
+    )
+    return AsaasAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
 
 def _inter(dormir):
@@ -294,6 +304,12 @@ def _webhook_pix(id_banco, situacao):
 
 
 FABRICAS = [
+    Fabrica(
+        nome="asaas",
+        criar=_asaas,
+        liquidar=lambda falso, id_banco: falso.confirmar(id_banco),
+        webhook=lambda id_banco, situacao: asaas_falso.webhook(id_banco, situacao),
+    ),
     Fabrica(
         nome="banrisul",
         criar=_banrisul,

@@ -221,3 +221,19 @@ class TokenEstatico(Autenticador):
         self, escopo: str | None, client: httpx.AsyncClient
     ) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}"}
+
+
+class ChaveApi(Autenticador):
+    """Chave fixa num cabecalho proprio (Asaas: `access_token`)."""
+
+    def __init__(self, cabecalho: str, valor: str) -> None:
+        self._cabecalho = cabecalho
+        self._valor = valor
+
+    def __repr__(self) -> str:
+        return f"ChaveApi({self._cabecalho!r}, ***)"
+
+    async def cabecalhos(
+        self, escopo: str | None, client: httpx.AsyncClient
+    ) -> dict[str, str]:
+        return {self._cabecalho: self._valor}
