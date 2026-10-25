@@ -149,6 +149,8 @@ class EventoCanonico(_Modelo):
     tipo: StatusCanonico
     ocorrido_em: datetime | None = None
     valor_pago: Valor | None = None
+    # Assinatura que gerou a cobranca, quando o gateway a gerou sozinho.
+    id_recorrencia: str | None = None
     resposta_bruta: Annotated[
         dict[str, Any], BeforeValidator(_mascarar_bruta), Field(repr=False)
     ] = {}

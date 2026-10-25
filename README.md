@@ -24,6 +24,7 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 
 | Banco | Adapter (entry point) | Produto | Capacidades declaradas | Fonte do contrato |
 | --- | --- | --- | --- | --- |
+| Asaas (gateway) | `asaas` | API v3: boleto, Pix e fatura hospedada, chave de API | hibrido, alteracao, baixa, PDF, webhook, Pix cob e cobv | oficial (OpenAPI) |
 | Inter (077) | `inter` | Cobranca v3, boleto hibrido | hibrido, so hibrido, baixa, PDF, webhook | Odoo |
 | PinBank | `pinbank` | Boleto, envelope AES-CBC | baixa | Odoo |
 | Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | publica e terceiros |
@@ -43,8 +44,15 @@ Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, co
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
 Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.
 
-Fora desta lista por enquanto: BNB, gateways como Mercado Pago, PagBank e Stone (sob demanda), o
-boleto hibrido do Bradesco e a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
+O Asaas e o primeiro gateway: um adapter de cobranca por API key, sem convenio bancario, que serve
+boleto, Pix ou a fatura hospedada (`billing_type` da configuracao). Ele tambem implementa o protocolo
+opcional de **recorrencia** (`brbank.recorrencia`, capacidade `RECORRENCIA`): `criar_assinatura`,
+`alterar_assinatura`, `suspender`, `reativar`, `encerrar`, `listar_cobrancas` e, para cartao sem dado
+de cartao na biblioteca, `criar_checkout` (pagina hospedada, capacidade `CHECKOUT`). O gateway gera a
+cobranca de cada ciclo e avisa pelo webhook de cobranca (`EventoCanonico.id_recorrencia`); os eventos
+de assinatura e de checkout chegam por `parse_webhook_recorrencia`. Fora desta lista por enquanto:
+BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda), o boleto hibrido do Bradesco e
+a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
 
 **Validacao em sandbox.** Um adapter (ou perfil Pix) so passa a `validado_sandbox = True` depois
