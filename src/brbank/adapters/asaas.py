@@ -148,7 +148,8 @@ MEIOS_RECORRENCIA = {
     MeioCobranca.INDEFINIDO: "UNDEFINED",
 }
 _MEIOS_DO_ASAAS = {v: k for k, v in MEIOS_RECORRENCIA.items()}
-_MEIOS_CHECKOUT = {MeioCobranca.CARTAO: "CREDIT_CARD", MeioCobranca.PIX: "PIX"}
+# Sandbox (2026-10-25): checkout RECURRENT so aceita CREDIT_CARD; Pix exige DETACHED.
+_MEIOS_CHECKOUT = {MeioCobranca.CARTAO: "CREDIT_CARD"}
 _STATUS_ASSINATURA = {
     "ACTIVE": StatusAssinatura.ATIVA,
     "INACTIVE": StatusAssinatura.SUSPENSA,
@@ -293,17 +294,40 @@ def _endereco_payload(pessoa: Pessoa) -> dict[str, Any]:
     return dados
 
 
+def _customer_data(pessoa: Pessoa) -> dict[str, Any] | None:
+    """`customerData` do checkout, ou None para a pagina do Asaas pedir.
+
+    Sandbox (2026-10-25): quando `customerData` vai, o Asaas exige `phone`,
+    `address`, `addressNumber`, `postalCode` e `province` juntos (o erro diz
+    "phoneNumber", o campo e `phone`); faltando um, 400. Sem telefone ou
+    endereco completo, melhor nao mandar nada.
+    """
+    endereco = pessoa.endereco
+    if not pessoa.telefone or endereco is None or not endereco.bairro:
+        return None
+    return {
+        "name": pessoa.nome,
+        "cpfCnpj": pessoa.documento,
+        "phone": pessoa.telefone,
+        **_endereco_payload(pessoa),
+    }
+
+
 def _cliente_payload(pessoa: Pessoa, desligar_notificacoes: bool) -> dict[str, Any]:
     return {
         "name": pessoa.nome,
         "cpfCnpj": pessoa.documento,
         "notificationDisabled": desligar_notificacoes,
         **_endereco_payload(pessoa),
+        **({"mobilePhone": pessoa.telefone} if pessoa.telefone else {}),
     }
 
 
 class AsaasAdapter(BankAdapter, AdapterRecorrencia):
     banco: ClassVar[str] = "asaas"
+    # Ciclo completo (cobranca, Pix, assinatura, carne, checkout) rodado contra
+    # api-sandbox.asaas.com em 2026-10-25: tests/integracao/test_asaas_sandbox.py.
+    validado_sandbox: ClassVar[bool] = True
     # Hibrido depende de a conta ter chave Pix cadastrada (o adapter nao
     # enxerga isso): sem chave, o QR vem vazio e o boleto segue sem Pix.
     capacidades: ClassVar[Capacidade] = (
@@ -893,11 +917,11 @@ class AsaasAdapter(BankAdapter, AdapterRecorrencia):
         """`POST /checkouts` com `chargeTypes: RECURRENT`: o pagador informa o
         cartao na pagina do Asaas e a assinatura nasce la (eventos
         `CHECKOUT_PAID` e `SUBSCRIPTION_CREATED`, ligados por
-        `checkoutSession`). Aceita cartao e Pix, nunca boleto."""
+        `checkoutSession`). Recorrente aceita so cartao."""
         try:
             meios_asaas = [_MEIOS_CHECKOUT[meio] for meio in meios]
         except KeyError as exc:
-            raise Validacao("asaas: o checkout aceita so cartao e Pix") from exc
+            raise Validacao("asaas: o checkout recorrente aceita so cartao") from exc
         if not meios_asaas:
             raise Validacao("asaas: checkout sem meio de pagamento")
         if not 10 <= minutos_validade <= 1440:
@@ -933,13 +957,11 @@ class AsaasAdapter(BankAdapter, AdapterRecorrencia):
                     or IMAGEM_PADRAO_BASE64,
                 }
             ],
-            "customerData": {
-                "name": assinatura.pagador.nome,
-                "cpfCnpj": assinatura.pagador.documento,
-                **_endereco_payload(assinatura.pagador),
-            },
             "subscription": assinatura_payload,
         }
+        dados_pagador = _customer_data(assinatura.pagador)
+        if dados_pagador:
+            payload["customerData"] = dados_pagador
         resp = await self._requisitar(
             "POST", "checkouts", operacao="criar_checkout", json=payload
         )

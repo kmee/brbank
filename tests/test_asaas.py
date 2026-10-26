@@ -438,4 +438,4 @@ async def test_capacidades_declaradas(adapter):
     ):
         assert adapter.suporta(capacidade)
     assert not adapter.suporta(Capacidade.EMISSAO_ASSINCRONA)
-    assert adapter.validado_sandbox is False
+    assert adapter.validado_sandbox is True

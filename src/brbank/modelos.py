@@ -66,6 +66,8 @@ class Pessoa(_Modelo):
     documento: str = Field(repr=False)
     endereco: Endereco | None = Field(default=None, repr=False)
     email: str | None = Field(default=None, repr=False)
+    # So digitos, com DDD (o checkout do Asaas exige telefone do pagador).
+    telefone: str | None = Field(default=None, repr=False)
 
     @field_validator("documento")
     @classmethod

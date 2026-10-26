@@ -531,6 +531,18 @@ class AsaasFalso:
         for campo in ("billingTypes", "chargeTypes", "callback", "items"):
             if not corpo.get(campo):
                 return _erro(400, f"invalid_{campo}", f"Informe {campo}.")
+        dados = corpo.get("customerData")
+        if dados and any(
+            not dados.get(c)
+            for c in ("phone", "address", "addressNumber", "postalCode", "province")
+        ):
+            return _erro(
+                400, "invalid_object", "O campo phoneNumber deve ser informado."
+            )
+        if "RECURRENT" in corpo["chargeTypes"] and corpo["billingTypes"] != [
+            "CREDIT_CARD"
+        ]:
+            return _erro(400, "invalid_object", "RECURRENT so aceita CREDIT_CARD.")
         if any(not item.get("imageBase64") for item in corpo["items"]):
             return _erro(400, "invalid_items", "Cada item exige imageBase64.")
         if any(not corpo["callback"].get(c) for c in ("successUrl", "cancelUrl")):

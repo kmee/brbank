@@ -6,7 +6,7 @@ bancos brasileiros por uma interface unica. Nao importa nada do Odoo: o modulo
 
 Licenca MIT. Python 3.10+ (o 3.10 e o do Odoo 16.0; `brbank._compat` cobre o que so
 existe no 3.11) e `cryptography>=38`, para conviver com o pyOpenSSL da imagem do Odoo. **Alfa:** so o
-Sicoob (boleto e perfil Pix) foi validado em sandbox de banco (`validado_sandbox = True`); os
+Sicoob (boleto e perfil Pix) e o Asaas (cobranca e assinaturas) foram validados em sandbox (`validado_sandbox = True`); os
 demais trazem `False` e o contrato vem da documentacao publica e de fontes de terceiros, com as
 duvidas em `docs/<banco>-duvidas.md`.
 Estado: primeira fatia (modelo canonico, contrato
@@ -57,7 +57,7 @@ e um entry point em `brbank.adapters`.
 
 **Validacao em sandbox.** Um adapter (ou perfil Pix) so passa a `validado_sandbox = True` depois
 de rodar o ciclo contra o ambiente real do banco. Hoje: `sicoob` e o perfil Pix `sicoob`
-(2026-10-20). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em
+(2026-10-20) e `asaas` (2026-10-25). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em
 producao, mas o adapter da biblioteca ainda nao rodou contra o banco.
 
 Os testes contra sandbox ficam em `tests/integracao/`, marcados `sandbox`, fora da execucao padrao

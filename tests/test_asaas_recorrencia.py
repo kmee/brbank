@@ -274,8 +274,8 @@ async def test_criar_checkout_payload_e_link(adapter, falso):
             "imageBase64": IMAGEM_PADRAO_BASE64,
         }
     ]
-    assert corpo["customerData"]["cpfCnpj"] == "52998224725"
-    assert corpo["customerData"]["postalCode"] == "30110000"
+    # Sem telefone do pagador nao vai customerData: a pagina do Asaas pede.
+    assert "customerData" not in corpo
     assert corpo["subscription"] == {
         "cycle": "MONTHLY",
         "nextDueDate": "2027-01-10 00:00:00",
@@ -399,3 +399,46 @@ def test_webhook_de_recorrencia_exige_token_quando_configurado(falso, dormir):
     )
     with pytest.raises(Validacao):
         adapter.parse_webhook_recorrencia(b"nao e json")
+
+
+async def test_checkout_com_telefone_manda_customer_data(adapter, falso):
+    assinatura = fazer_assinatura(
+        meio=MeioCobranca.CARTAO,
+        pagador=pagador().model_copy(update={"telefone": "31999998888"}),
+    )
+    await adapter.criar_checkout(assinatura, url_sucesso="u", url_cancelamento="c")
+    dados = falso.ultimo_corpo["customerData"]
+    assert dados["phone"] == "31999998888"
+    assert dados["cpfCnpj"] == "52998224725"
+    assert dados["postalCode"] == "30110000"
+
+
+async def test_checkout_sem_endereco_completo_omite_customer_data(adapter, falso):
+    sem_bairro = pagador().model_copy(
+        update={
+            "telefone": "31999998888",
+            "endereco": pagador().endereco.model_copy(update={"bairro": ""}),
+        }
+    )
+    assinatura = fazer_assinatura(meio=MeioCobranca.CARTAO, pagador=sem_bairro)
+    await adapter.criar_checkout(assinatura, url_sucesso="u", url_cancelamento="c")
+    assert "customerData" not in falso.ultimo_corpo
+
+
+async def test_checkout_recorrente_recusa_pix(adapter, falso):
+    with pytest.raises(Validacao):
+        await adapter.criar_checkout(
+            fazer_assinatura(meio=MeioCobranca.CARTAO),
+            url_sucesso="u",
+            url_cancelamento="c",
+            meios=(MeioCobranca.CARTAO, MeioCobranca.PIX),
+        )
+    assert not falso.chamadas
+
+
+async def test_cliente_com_telefone_vai_como_celular(adapter, falso):
+    assinatura = fazer_assinatura(
+        pagador=pagador().model_copy(update={"telefone": "31999998888"})
+    )
+    await adapter.criar_assinatura(assinatura)
+    assert next(iter(falso.clientes.values()))["mobilePhone"] == "31999998888"

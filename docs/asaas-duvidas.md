@@ -1,9 +1,8 @@
 # Asaas API v3: duvidas
 
-`AsaasAdapter.validado_sandbox = False`. Nada rodou contra o sandbox nem a producao ainda: a
-conta de sandbox (sandbox.asaas.com, cadastro livre, chave `$aact_hmlg_...`) esta a ser criada.
-Quando a chave existir, o teste de integracao le `BRBANK_ASAAS_SANDBOX_API_KEY` e roda com
-`uv run pytest -m sandbox tests/integracao`.
+`AsaasAdapter.validado_sandbox = True` desde 2026-10-25 (ver "Validacao no sandbox"). Nada rodou em
+producao. O teste de integracao le `BRBANK_ASAAS_SANDBOX_API_KEY` (chave `$aact_hmlg_...` de uma
+conta criada em sandbox.asaas.com) e roda com `uv run pytest -m sandbox tests/integracao`.
 
 ## Fontes
 
@@ -13,6 +12,33 @@ Quando a chave existir, o teste de integracao le `BRBANK_ASAAS_SANDBOX_API_KEY` 
 - Nao ha modulo Odoo de origem nem SDK oficial em Python (`asaas-sdk` do PyPI e de terceiro,
   parado desde 2024, e nao foi usado).
 - Analise completa, encaixe no Odoo e decisoes: `kmee-brain`, `kmee-produtos/brbank/ANALISE-ASAAS.md`.
+
+## Validacao no sandbox (2026-10-25)
+
+Teste: `tests/integracao/test_asaas_sandbox.py` (6 testes, 22 s). O sandbox do Asaas guarda estado,
+entao a transicao de estado fica provada, nao so o contrato:
+
+| Chamada | Resultado real |
+| --- | --- |
+| `POST /payments` (boleto) | 200, `PENDING`, `nossoNumero`, `bankSlipUrl` e `invoiceUrl`; `GET .../identificationField` traz linha e codigo de barras |
+| `GET /payments?externalReference=` | acha a cobranca: segundo registro com a mesma chave vira `Duplicado` |
+| `PUT /payments/{id}` (prorrogacao, abatimento) | 200; `dueDate` e `value` mudam, linha digitavel segue disponivel |
+| `bankSlipUrl` | PDF de 25 KB sem chave de API |
+| `POST /sandbox/payment/{id}/confirm` | 200; `GET` devolve `RECEIVED`, `value` = valor pago (abatido), `clientPaymentDate` de hoje, `originalValue` nulo |
+| `DELETE /payments/{id}` de cobranca paga | 400 `invalid_action` ("so pendentes ou vencidas") |
+| `DELETE` de cobranca aberta | 200; `GET` devolve `deleted: true` com `status: PENDING` (adapter le `BAIXADO`) |
+| `GET /payments/pay_inexistente` | 404 sem corpo util |
+| `POST /payments` (Pix) | 200 e `GET .../pixQrCode` com `payload`, mesmo sem chave Pix na conta; `identificationField` da 400 |
+| `GET .../pixQrCode` de boleto sem chave Pix na conta | 400 `invalid_action` ("nao possui chave Pix") (adapter devolve QR vazio) |
+| `POST /subscriptions` (boleto, mensal) | 200 `ACTIVE`; **a primeira cobranca nasce na hora** (vencimento dentro da antecedencia) e `nextDueDate` ja avanca um ciclo |
+| `GET /subscriptions/{id}/paymentBook?month&year` | 200 PDF e gera as cobrancas ate o mes |
+| `PUT /subscriptions/{id}` com `value` e `updatePendingPayments` | 200; **`value` muda** (a OpenAPI omite o campo) e as cobrancas pendentes mudam junto |
+| `PUT` `status: INACTIVE` / `ACTIVE` + `nextDueDate` | 200 |
+| `DELETE /subscriptions/{id}` | 200; `GET` devolve `deleted: true`, `status: INACTIVE`; a listagem de cobrancas fica vazia (pendentes removidas) |
+| `POST /checkouts` `RECURRENT` | so `billingTypes: ["CREDIT_CARD"]`: com Pix, 400 ("RECURRENT so aceita CREDIT_CARD", "Pix exige DETACHED") |
+| `customerData` no checkout | exige `phone`, `address`, `addressNumber`, `postalCode` e `province` juntos (o erro cita "phoneNumber", o campo e `phone`); sem `customerData`, 200 |
+| `link` do checkout | `https://sandbox.asaas.com/000/checkoutSession/show/<id>` (formato diferente do guia) |
+| `GET /webhooks` | lista vazia (webhook nao exercitado: exige URL publica) |
 
 ## O que o adapter assume (conferir no sandbox)
 
@@ -41,9 +67,9 @@ Quando a chave existir, o teste de integracao le `BRBANK_ASAAS_SANDBOX_API_KEY` 
 | --- | --- | --- |
 | Criacao | `POST /subscriptions` com `externalReference` = chave; busca antes (`GET /subscriptions?externalReference=`) e achada vira `Duplicado`; cliente garantido como na cobranca | sem idempotencia na API |
 | Cartao | `criar_assinatura` com meio CARTAO levanta `NaoSuportado`; o caminho e `criar_checkout` (`POST /checkouts`, `chargeTypes: RECURRENT`) | dado de cartao nao passa pela biblioteca (PCI); tokenizacao em producao depende de habilitacao |
-| Checkout | `billingTypes` so cartao e Pix; `items[0]` com `imageBase64` (pixel transparente quando a configuracao nao traz imagem); `subscription.nextDueDate` enviado como `AAAA-MM-DD 00:00:00`; URL = `link` da resposta ou `.../checkoutSession/show?id=` | OpenAPI exige imagem e callback; o guia mostra data e hora no campo |
+| Checkout | `billingTypes` so cartao (recorrente); `items[0]` com `imageBase64` (pixel transparente quando a configuracao nao traz imagem); `subscription.nextDueDate` enviado como `AAAA-MM-DD 00:00:00`; URL = `link` da resposta ou `.../checkoutSession/show?id=` | OpenAPI exige imagem e callback; o guia mostra data e hora no campo |
 | Ligacao checkout -> assinatura | `subscription.checkoutSession` (resposta e webhook `SUBSCRIPTION_CREATED`) | a assinatura criada pelo checkout nao herda `externalReference` (nao documentado) |
-| Alteracao | `PUT /subscriptions/{id}` so com os campos preenchidos; `value` e enviado apesar de nao constar no schema de atualizacao; `updatePendingPayments` quando `aplicar_nas_pendentes` | FAQ diz que o valor muda; a OpenAPI nao lista |
+| Alteracao | `PUT /subscriptions/{id}` so com os campos preenchidos; `value` funciona (confirmado no sandbox, a OpenAPI omite); `updatePendingPayments` quando `aplicar_nas_pendentes` | sandbox 2026-10-25 |
 | Suspender e reativar | `status: INACTIVE`; `ACTIVE` exige `nextDueDate` novo | FAQ |
 | Encerrar | `DELETE /subscriptions/{id}`; o Asaas remove as cobrancas pendentes e vencidas | FAQ |
 | Cobrancas do ciclo | geradas pelo Asaas 40 dias antes do vencimento (14 ou 7 por configuracao da conta); chegam por `PAYMENT_CREATED` com `payment.subscription`, que vira `EventoCanonico.id_recorrencia`; `listar_cobrancas` pagina `GET /subscriptions/{id}/payments` sem buscar linha digitavel nem QR | FAQ e OpenAPI |
@@ -51,23 +77,22 @@ Quando a chave existir, o teste de integracao le `BRBANK_ASAAS_SANDBOX_API_KEY` 
 
 ## Duvidas abertas
 
-1. **Corpo do 404**: a documentacao nao mostra o corpo de cobranca inexistente; o falso devolve
-   `errors[{code: invalid_action}]`. O teste de contrato espera HTTP 404.
-2. **`pixQrCode` em boleto sem chave Pix**: a documentacao diz apenas que sem chave o QR sai por
-   instituicao parceira e vale ate 23:59 do dia (recurso a ser descontinuado). Conferir se a
-   resposta e um QR de um dia, 400 ou 404.
-3. **Fuso de `dateCreated`** nos eventos e de `paymentDate`/`clientPaymentDate`.
-4. **Sandbox nao aplica juros, multa e desconto**: os campos sao aceitos mas nao exercitados; validar
+1. **Fuso de `dateCreated`** nos eventos e de `paymentDate`/`clientPaymentDate` (o sandbox devolveu a
+   data de hoje em Brasilia; sem hora para comparar).
+2. **Sandbox nao aplica juros, multa e desconto**: os campos sao aceitos mas nao exercitados; validar
    em producao com valor baixo.
-5. **Antecedencia de geracao das cobrancas de assinatura** (40, 14 ou 7 dias) e configuracao da
-   conta: onde fica e se a API a expoe. Relevante para a fase de recorrencia.
-6. **`value` no `PUT /subscriptions/{id}`**: ausente no schema da OpenAPI, presente no FAQ.
-7. **Checkout recorrente**: se a resposta ou o evento `CHECKOUT_PAID` traz `creditCardToken`.
-8. **Retentativa de cartao recusado** no ciclo de uma assinatura: nao documentada.
-9. **IPs do sandbox** para o webhook: a lista oficial e so de producao.
-10. **URL do checkout no sandbox**: a documentacao so mostra a de producao
-    (`https://asaas.com/checkoutSession/show?id=`); o adapter usa `link` da resposta quando vem.
-11. **Formato de `subscription.nextDueDate` no checkout**: o guia mostra `2027-01-31 15:02:38` e o
-    webhook devolve ISO com fuso; o adapter manda `AAAA-MM-DD 00:00:00`.
-12. **`billingType` da assinatura criada pelo checkout** com mais de um meio oferecido: qual fica
-    gravado e se as cobrancas seguintes respeitam a escolha do pagador.
+3. **Antecedencia de geracao das cobrancas de assinatura** (40, 14 ou 7 dias): configuracao da
+   conta no painel; a API nao a expoe. No sandbox a primeira cobranca nasceu junto com a assinatura
+   (vencimento a 15 dias).
+4. **Checkout recorrente**: se o evento `SUBSCRIPTION_CREATED` traz `creditCardToken`; e o que
+   acontece com `customerData` quando a conta tem a tokenizacao habilitada.
+5. **Retentativa de cartao recusado** no ciclo de uma assinatura: nao documentada.
+6. **IPs do sandbox** para o webhook: a lista oficial e so de producao. O webhook nao foi exercitado
+   (exige URL publica): fica para o ciclo com o Odoo exposto por tunel.
+7. **Boleto hibrido**: a conta de sandbox ainda nao tem chave Pix; com chave, confirmar que o
+   `pixQrCode` do boleto responde 200 e o PDF traz o QR.
+
+Resolvidas no sandbox em 2026-10-25 (ver a tabela acima): corpo do 404, QR em boleto sem chave
+(400), `value` no `PUT` da assinatura (funciona), URL do checkout no sandbox (`link` da resposta),
+formato de `nextDueDate` do checkout (`AAAA-MM-DD 00:00:00` aceito) e meios do checkout recorrente
+(so cartao, o que elimina a duvida sobre o `billingType` escolhido).
