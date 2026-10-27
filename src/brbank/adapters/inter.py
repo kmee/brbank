@@ -1,6 +1,7 @@
 """Banco Inter, API de Cobranca v3 (boleto com Pix, mTLS, OAuth2 por escopo).
 
-Portado de `l10n_br_payment_boleto_inter` (kmee-odoo-addons). Diferencas
+Portado de `l10n_br_payment_boleto_inter` (kmee-odoo-addons; hoje
+`l10n_br_payment_inter`). Diferencas
 deliberadas: sem dados ficticios no lugar de campo ausente (o Odoo mandava
 `teste@teste.com` e DDD 31), e o cancelamento usa o motivo pedido pelo
 chamador em vez de fixar SUBSTITUICAO.

@@ -1,6 +1,7 @@
 """PinBank, API CashIn de boleto (OAuth2 password, payload cifrado AES-CBC).
 
-Portado de `l10n_br_payment_boleto_pinbank` (kmee-odoo-addons, branch 16.0).
+Portado de `l10n_br_payment_boleto_pinbank` (kmee-odoo-addons, branch 16.0; hoje
+`l10n_br_payment_pinbank`).
 Diferencas deliberadas em relacao ao modulo Odoo:
 
 - A referencia do titulo e o `NossoNumero` devolvido pelo banco (`id_banco`),
