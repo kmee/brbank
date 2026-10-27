@@ -276,13 +276,13 @@ async def test_inter_form_com_escopos():
 
 
 async def test_bb_basic_e_app_key_na_query():
-    adapter, falso = montar("bb", app_key="k1", id_parceiro="11222333000181")
+    adapter, falso = montar("bb", app_key="k1", id_parceiro="91300766000147")
     await adapter.registrar_titulo(fazer_titulo())
     assert falso.basic() == "id:segredo"
     assert "client_secret" not in falso.corpo_token()
     req = falso.requisicoes[-1]
     assert req.url.params["gw-dev-app-key"] == "k1"
-    assert req.headers["x-bb-portal-devx-cnpj-parceiro"] == "11222333000181"
+    assert req.headers["x-bb-portal-devx-cnpj-parceiro"] == "91300766000147"
 
 
 async def test_sicoob_so_client_id_header_e_alias_brcode():

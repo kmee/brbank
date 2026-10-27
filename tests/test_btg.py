@@ -18,7 +18,7 @@ from brbank.adapters.btg import BtgAdapter, BtgConfig
 from tests.btg_falso import CLIENT_ID, CLIENT_SECRET, REFRESH_INICIAL, BtgFalso
 from tests.conftest import CNPJ_VALIDO, fazer_titulo
 
-CNPJ = "11222333000181"
+CNPJ = "91300766000147"
 
 
 def _config(**extra) -> BtgConfig:
@@ -459,7 +459,7 @@ def test_config_invalida():
         _config(cnpj_empresa="11.222.333/0001-00")
     with pytest.raises(Validacao, match="negativo"):
         _config(dias_expiracao=-1)
-    assert _config(cnpj_empresa="11.222.333/0001-81").cnpj_empresa == CNPJ
+    assert _config(cnpj_empresa="91.300.766/0001-47").cnpj_empresa == CNPJ
 
 
 def test_repr_nao_vaza_segredos():

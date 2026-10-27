@@ -181,7 +181,7 @@ async def test_payload_valores_e_encargos(adapter, falso):
     assert dado["pagador"]["endereco"]["nome_logradouro"] == "Rua das Flores 10"
     assert dado["pagador"]["endereco"]["numero_CEP"] == "30110000"
     sacador = dado["sacador_avalista"]["pessoa"]["tipo_pessoa"]
-    assert sacador["numero_cadastro_nacional_pessoa_juridica"] == "11222333000181"
+    assert sacador["numero_cadastro_nacional_pessoa_juridica"] == "91300766000147"
 
 
 async def test_sem_encargos_dispensa_multa_e_omite_juros(adapter, falso):

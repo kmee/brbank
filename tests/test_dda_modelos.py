@@ -29,7 +29,7 @@ def _debito(**extra) -> DebitoDda:
     base = {
         "banco": "btg",
         "id_banco": "d-1",
-        "cnpj_pagador": "11.222.333/0001-81",
+        "cnpj_pagador": "91.300.766/0001-47",
         "linha_digitavel": LINHA,
         "beneficiario_documento": "45.000.001/0001-56",
         "beneficiario_nome": "ALFA EMBALAGENS LTDA",
@@ -85,12 +85,12 @@ def test_debito_normaliza_e_nao_vaza_pii_no_repr():
         resposta_bruta={"nome": "Maria", "status": "CREATED"},
     )
     assert debito.valor == Decimal("10.01")
-    assert debito.cnpj_pagador == "11222333000181"
+    assert debito.cnpj_pagador == "91300766000147"
     assert debito.beneficiario_documento == "45000001000156"
     assert debito.status is StatusDda.ABERTO
     assert debito.resposta_bruta == {"nome": "***", "status": "CREATED"}
     texto = repr(debito)
-    for pii in ("ALFA", "45000001", "11222333", LINHA, "Maria"):
+    for pii in ("ALFA", "45000001", "91300766", LINHA, "Maria"):
         assert pii not in texto
 
 

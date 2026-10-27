@@ -14,7 +14,7 @@ from decimal import Decimal
 from brbank.dda import _dv_mod10, _dv_mod11_barras
 
 # CNPJ da empresa pagadora fictícia (o mesmo dos testes da biblioteca).
-CNPJ_DEMO = "11222333000181"
+CNPJ_DEMO = "91300766000147"
 NOME_DEMO = "EMPRESA DEMO LTDA"
 
 _BANCOS = {
@@ -97,25 +97,25 @@ BENEFICIARIOS = {
     b.chave: b
     for b in (
         _beneficiario(
-            "alfa", "450000010001", "ALFA EMBALAGENS LTDA", "ALFA EMBALAGENS", "341"
+            "alfa", "946237560001", "ALFA EMBALAGENS LTDA", "ALFA EMBALAGENS", "341"
         ),
-        _beneficiario("beta", "450000020001", "BETA PAPEIS S.A.", "BETA PAPEIS", "001"),
+        _beneficiario("beta", "924551010001", "BETA PAPEIS S.A.", "BETA PAPEIS", "001"),
         _beneficiario(
-            "gama", "450000030001", "GAMA LOGISTICA LTDA", "GAMA LOGISTICA", "237"
+            "gama", "934498340001", "GAMA LOGISTICA LTDA", "GAMA LOGISTICA", "237"
         ),
         _beneficiario(
-            "delta", "450000040001", "DELTA LOCACOES LTDA", "DELTA LOCACOES", "104"
+            "delta", "914286590001", "DELTA LOCACOES LTDA", "DELTA LOCACOES", "104"
         ),
         _beneficiario(
             "omega",
-            "450000050001",
+            "959169960001",
             "OMEGA SECURITIZADORA DE CREDITOS S.A.",
             "OMEGA CREDITOS",
             "208",
         ),
         _beneficiario(
             "epsilon",
-            "450000060001",
+            "955649200001",
             "EPSILON INDUSTRIA LTDA",
             "EPSILON INDUSTRIA",
             "033",
@@ -124,16 +124,16 @@ BENEFICIARIOS = {
             "sigma", "450000070001", "SIGMA SERVICOS LTDA", "SIGMA SERVICOS", "756"
         ),
         _beneficiario(
-            "zeta", "450000080001", "ZETA METALURGICA LTDA", "ZETA METALURGICA", "001"
+            "zeta", "936854390001", "ZETA METALURGICA LTDA", "ZETA METALURGICA", "001"
         ),
         _beneficiario(
-            "eta", "450000090001", "ETA SUPRIMENTOS LTDA", "ETA SUPRIMENTOS", "341"
+            "eta", "908890300001", "ETA SUPRIMENTOS LTDA", "ETA SUPRIMENTOS", "341"
         ),
         _beneficiario(
-            "teta", "450000100001", "TETA MANUTENCAO LTDA", "TETA MANUTENCAO", "237"
+            "teta", "972823490001", "TETA MANUTENCAO LTDA", "TETA MANUTENCAO", "237"
         ),
         _beneficiario(
-            "iota", "450000110001", "IOTA GRAFICA LTDA", "IOTA GRAFICA", "104"
+            "iota", "934937190001", "IOTA GRAFICA LTDA", "IOTA GRAFICA", "104"
         ),
     )
 }

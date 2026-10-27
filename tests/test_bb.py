@@ -300,10 +300,10 @@ async def test_token_por_escopo_e_reaproveitado(adapter, falso):
 
 async def test_cnpj_parceiro_vai_no_header(falso, dormir):
     adapter = BancoDoBrasilAdapter(
-        config(cnpj_parceiro="11222333000181"), client=falso.cliente(), dormir=dormir
+        config(cnpj_parceiro="91300766000147"), client=falso.cliente(), dormir=dormir
     )
     await adapter.registrar_titulo(titulo_numerico())
-    assert falso.ultimo_cabecalho["x-bb-portal-devx-cnpj-parceiro"] == "11222333000181"
+    assert falso.ultimo_cabecalho["x-bb-portal-devx-cnpj-parceiro"] == "91300766000147"
 
 
 async def test_indicador_pix_configuravel(falso, dormir):

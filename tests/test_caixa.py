@@ -46,7 +46,7 @@ def _config(**extra) -> CaixaConfig:
         "conta": "c1",
         "codigo_beneficiario": CODIGO_BENEFICIARIO,
         "agencia": "1234",
-        "documento_beneficiario": "11.222.333/0001-81",
+        "documento_beneficiario": "91.300.766/0001-47",
         "tipo_especie": 2,
         "gerar_nosso_numero": lambda _titulo: next(sequencia),
     }
@@ -192,7 +192,7 @@ async def test_payload_de_inclusao(adapter, falso):
     assert _texto(t, "PAGADOR", "NOME") == "Maria da Silva"
     assert _texto(t, "PAGADOR", "ENDERECO", "LOGRADOURO") == "Rua das Flores 10"
     assert _texto(t, "PAGADOR", "ENDERECO", "CEP") == "30110000"
-    assert _texto(t, "SACADOR_AVALISTA", "CNPJ") == "11222333000181"
+    assert _texto(t, "SACADOR_AVALISTA", "CNPJ") == "91300766000147"
     assert _texto(t, "SACADOR_AVALISTA", "RAZAO_SOCIAL") == "KMEE Ltda"
     assert _texto(t, "MULTA", "DATA") == "2026-12-11"
     assert _texto(t, "MULTA", "PERCENTUAL") == "2.0000"
@@ -240,7 +240,7 @@ async def test_pagador_pj_truncado_e_escapado(adapter, falso):
     await adapter.registrar_titulo(titulo)
     assert b"&amp;" in falso.ultimo_corpo and b"&lt;Teste&gt;" in falso.ultimo_corpo
     t = _filho(_titulo_xml(falso), "INCLUI_BOLETO", "TITULO")
-    assert _texto(t, "PAGADOR", "CNPJ") == "11222333000181"
+    assert _texto(t, "PAGADOR", "CNPJ") == "91300766000147"
     assert _texto(t, "PAGADOR", "RAZAO_SOCIAL") == longa[:40]
     assert _texto(t, "PAGADOR", "ENDERECO", "CIDADE") == "Campos dos Goyt"
     assert _filho(t, "SACADOR_AVALISTA") is None
@@ -492,5 +492,5 @@ def test_config_invalida(extra):
 
 def test_repr_da_config_nao_vaza_documento():
     texto = repr(_config())
-    assert "11222333000181" not in texto
+    assert "91300766000147" not in texto
     assert "gerar_nosso_numero" not in texto
