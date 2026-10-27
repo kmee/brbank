@@ -22,24 +22,39 @@ Quirks que moldam o adapter:
 """
 
 import asyncio
+import base64
+import hashlib
 import hmac
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Mapping
+import secrets
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, ClassVar
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
 from brbank._compat import datetime_iso
 from brbank.adapter import BankAdapter
-from brbank.auth import OAuth2ClientCredentialsBasic
+from brbank.auth import ArmazemToken, OAuth2ClientCredentialsBasic
 from brbank.capacidades import Capacidade
+from brbank.dda import (
+    AdapterDda,
+    CapacidadeDda,
+    DebitoDda,
+    EventoDda,
+    PaginaDebitos,
+    ResumoDda,
+    StatusDda,
+    TipoEventoDda,
+    codigo_barras_da_linha,
+    hash_corpo,
+)
 from brbank.documento import cnpj_valido, normalizar
-from brbank.erros import NaoSuportado, Validacao
+from brbank.erros import Indisponivel, NaoSuportado, Validacao
 from brbank.mascara import MASCARA, mascarar
 from brbank.modelos import (
     EventoCanonico,
@@ -56,6 +71,9 @@ URL_PRODUCAO = "https://api.empresas.btgpactual.com"
 URL_SANDBOX = "https://api.sandbox.empresas.btgpactual.com"
 TOKEN_PRODUCAO = "https://id.btgpactual.com/oauth2/token"
 TOKEN_SANDBOX = "https://id.sandbox.btgpactual.com/oauth2/token"
+AUTORIZACAO_PRODUCAO = "https://id.btgpactual.com/oauth2/authorize"
+AUTORIZACAO_SANDBOX = "https://id.sandbox.btgpactual.com/oauth2/authorize"
+ESCOPO_DDA = "brn:btg:empresas:banking:direct-debit"
 
 # Enum `CollectionStatus` da spec (consulta, criacao e atualizacao). Fora de
 # proposito: EXPIRED ("vencida" na ficha, "expirada" no webhook), UPDATED,
@@ -140,6 +158,16 @@ class BtgConfig:
     # Header `x-response` exigido pelo sandbox (Wiremock): success ou error.
     resposta_sandbox: str = "success"
     requisicoes_por_segundo: float | None = None
+    # Aponta o adapter para outro servidor (simulador, testes). Vazio = ambiente.
+    url_base_override: str | None = None
+    url_token_override: str | None = None
+    # Onde o access token vive entre processos (ver `brbank.auth.ArmazemToken`).
+    armazem: ArmazemToken | None = field(default=None, repr=False)
+    # Le o refresh token vigente DENTRO da trava de renovacao: o valor da config
+    # fica velho quando outro processo ja renovou (o BTG pode rotacionar).
+    ler_refresh_token: Callable[[], str] | None = field(default=None, repr=False)
+    # Escopo do consentimento do DDA (somado a `openid`).
+    escopos_dda: str = ESCOPO_DDA
 
     def __post_init__(self) -> None:
         if self.ambiente not in ("producao", "sandbox"):
@@ -153,11 +181,26 @@ class BtgConfig:
 
     @property
     def url_base(self) -> str:
+        if self.url_base_override:
+            return self.url_base_override
         return URL_SANDBOX if self.ambiente == "sandbox" else URL_PRODUCAO
 
     @property
     def url_token(self) -> str:
+        if self.url_token_override:
+            return self.url_token_override
         return TOKEN_SANDBOX if self.ambiente == "sandbox" else TOKEN_PRODUCAO
+
+    @property
+    def url_autorizacao(self) -> str:
+        if self.url_token_override:
+            base = self.url_token_override
+            return (base[: -len("/token")] if base.endswith("/token") else base) + (
+                "/authorize"
+            )
+        return (
+            AUTORIZACAO_SANDBOX if self.ambiente == "sandbox" else AUTORIZACAO_PRODUCAO
+        )
 
 
 class _CapturaResposta:
@@ -184,16 +227,23 @@ class _RefreshTokenBasic(OAuth2ClientCredentialsBasic):
         *,
         refresh_token: str,
         ao_renovar: Callable[[str], Awaitable[None] | None] | None = None,
+        ler_refresh_token: Callable[[], str] | None = None,
         **comum: Any,
     ) -> None:
         super().__init__(**comum)
         self._refresh_token = refresh_token
         self._ao_renovar = ao_renovar
+        self._ler_refresh_token = ler_refresh_token
 
     def _formulario(self) -> dict[str, str]:
         return {"grant_type": "refresh_token", "refresh_token": self._refresh_token}
 
     async def _pedir(self, escopo: str | None, client: httpx.AsyncClient) -> Any:
+        if self._ler_refresh_token is not None:
+            # Dentro da trava: o valor em memoria pode estar velho.
+            vigente = await asyncio.to_thread(self._ler_refresh_token)
+            if vigente:
+                self._refresh_token = vigente
         captura = _CapturaResposta(client)
         token = await super()._pedir(escopo, captura)  # type: ignore[arg-type]
         try:
@@ -293,9 +343,47 @@ def _pagador(pessoa: Pessoa) -> dict[str, Any]:
     return dados
 
 
-class BtgAdapter(BankAdapter):
+# Estados do debito no BTG (consulta e webhook; `PAID` so no webhook). So `PAGO`
+# fecha a divida: os estados de pagamento em curso seguem abertos para o Odoo
+# (docs/btg-dda-duvidas.md). O estado original fica na `resposta_bruta`.
+_STATUS_DDA = {
+    "CREATED": StatusDda.ABERTO,
+    "OVERDUE": StatusDda.ABERTO,
+    "PAYMENT_PENDING_APPROVAL": StatusDda.ABERTO,
+    "PAYMENT_PROCESSING": StatusDda.ABERTO,
+    "SCHEDULED": StatusDda.ABERTO,
+    "PAYMENT_CONFIRMED": StatusDda.PAGO,
+    "PAID": StatusDda.PAGO,
+}
+_PREFIXO_WEBHOOK_DDA = "authorized-direct-debits."
+_EVENTOS_DDA = {
+    "enabled": TipoEventoDda.DDA_ATIVADO,
+    "disabled": TipoEventoDda.DDA_DESATIVADO,
+    "debit-added": TipoEventoDda.DEBITO_NOVO,
+    "debit-paid": TipoEventoDda.DEBITO_PAGO,
+}
+# `status` de um DDA ligado (resposta de ativar e desativar).
+_STATUS_ATIVACAO = frozenset({"ENABLED", "PENDING_ENABLED"})
+
+
+def _data_dda(valor: Any) -> date | None:
+    """Data do debito; a sentinela `0001-01-01` (sem data) vira None."""
+    achada = _data(valor)
+    return None if achada is not None and achada.year <= 1 else achada
+
+
+class BtgAdapter(BankAdapter, AdapterDda):
     banco: ClassVar[str] = "btg"
     validado_sandbox: ClassVar[bool] = False
+    capacidades_dda: ClassVar[CapacidadeDda] = (
+        CapacidadeDda.ATIVACAO
+        | CapacidadeDda.CONSULTA
+        | CapacidadeDda.RESUMO
+        | CapacidadeDda.ALTERACAO
+        | CapacidadeDda.WEBHOOK
+    )
+    # Itens por pagina na listagem de debitos (o BTG nao documenta o maximo).
+    tamanho_pagina_dda: int = 100
     capacidades: ClassVar[Capacidade] = (
         Capacidade.HIBRIDO
         | Capacidade.ALTERACAO
@@ -322,6 +410,8 @@ class BtgAdapter(BankAdapter):
             client_secret=config.client_secret,
             refresh_token=config.refresh_token,
             ao_renovar=config.ao_renovar_refresh_token,
+            ler_refresh_token=config.ler_refresh_token,
+            armazem=config.armazem,
         )
         self._transporte = Transporte(
             banco=self.banco,
@@ -612,6 +702,15 @@ class BtgAdapter(BankAdapter):
         if not hmac.compare_digest(recebido.encode(), f"Bearer {segredo}".encode()):
             raise Validacao("webhook do BTG com segredo ausente ou invalido")
 
+    @staticmethod
+    def _itens_webhook(corpo: bytes | str | list | dict) -> list[Any]:
+        if isinstance(corpo, bytes | str):
+            try:
+                corpo = json.loads(corpo, parse_float=Decimal)
+            except ValueError as exc:
+                raise Validacao("webhook do BTG nao e JSON") from exc
+        return corpo if isinstance(corpo, list) else [corpo]
+
     def parse_webhook(
         self,
         corpo: bytes | str | list | dict,
@@ -620,17 +719,16 @@ class BtgAdapter(BankAdapter):
         """Webhook `collections.*`: envelope `{webhookId, event, data}`.
 
         Com `webhook_secret` configurado, confere o `Authorization` que o BTG
-        manda. Mesmo assim reconsulte antes de dar como pago.
+        manda. Mesmo assim reconsulte antes de dar como pago. Eventos de outras
+        familias (ex.: `authorized-direct-debits.*`, que vem pela mesma URL) sao
+        ignorados: quem os trata e `parse_webhook_dda`.
         """
         self._conferir_segredo(cabecalhos)
-        if isinstance(corpo, bytes | str):
-            try:
-                corpo = json.loads(corpo, parse_float=Decimal)
-            except ValueError as exc:
-                raise Validacao("webhook do BTG nao e JSON") from exc
-        itens = corpo if isinstance(corpo, list) else [corpo]
         eventos = []
-        for item in itens:
+        for item in self._itens_webhook(corpo):
+            nome = item.get("event") if isinstance(item, dict) else None
+            if isinstance(nome, str) and not _familia_cobranca(nome):
+                continue
             dados = item.get("data") if isinstance(item, dict) else None
             if not isinstance(dados, dict) or not dados.get("collectionId"):
                 raise Validacao("webhook do BTG sem data.collectionId")
@@ -655,3 +753,398 @@ class BtgAdapter(BankAdapter):
                 )
             )
         return eventos
+
+    # --- DDA ---------------------------------------------------------------
+
+    @staticmethod
+    def _cnpj_dda(cnpj: str) -> str:
+        normalizado = normalizar(cnpj)
+        if not cnpj_valido(normalizado):
+            raise Validacao("btg: cnpj do DDA nao e um CNPJ valido")
+        return normalizado
+
+    def _caminho_dda(self, cnpj: str, *partes: str) -> str:
+        return "/".join((self._cnpj_dda(cnpj), "banking", "direct-debit", *partes))
+
+    def _debito(self, item: Any, cnpj_pagador: str | None) -> DebitoDda:
+        """Um debito da consulta ou do webhook (as duas formas do `payee`)."""
+        if not isinstance(item, dict):
+            raise Validacao("debito do BTG nao e um objeto")
+        if cnpj_pagador is None:
+            raise Validacao("debito do BTG sem o CNPJ do pagador (owner.taxId)")
+        payee = item.get("payee") if isinstance(item.get("payee"), dict) else {}
+        banco_payee = payee.get("bank") if isinstance(payee.get("bank"), dict) else {}
+        codigo_banco = payee.get("bankCode") or banco_payee.get("code")
+        situacao = item.get("status")
+        if situacao is not None and situacao not in _STATUS_DDA:
+            raise Validacao(
+                f"status de debito do BTG desconhecido: {situacao!r}",
+                resposta_bruta=_sem_pii(item),
+            )
+        valor = _decimal(item.get("amount"))
+        identificador = item.get("id")
+        if valor is None or not identificador:
+            raise Validacao(
+                "debito do BTG sem id ou amount", resposta_bruta=_sem_pii(item)
+            )
+        linha = str(item.get("digitableLine") or "")
+        try:
+            atualizado = (
+                datetime_iso(item["updatedAt"]) if item.get("updatedAt") else None
+            )
+            return DebitoDda(
+                banco=self.banco,
+                id_banco=str(identificador),
+                cnpj_pagador=cnpj_pagador,
+                linha_digitavel=linha,
+                codigo_barras=codigo_barras_da_linha(linha),
+                beneficiario_documento=str(
+                    payee.get("document") or payee.get("taxId") or ""
+                ),
+                beneficiario_nome=str(
+                    payee.get("socialName") or payee.get("fantasyName") or ""
+                ),
+                beneficiario_fantasia=payee.get("fantasyName") or None,
+                banco_emissor=str(codigo_banco) if codigo_banco else None,
+                valor=valor,
+                vencimento=_data_dda(item.get("dueDate")),
+                data_limite=_data_dda(item.get("expirationDate")),
+                status=_STATUS_DDA[situacao] if situacao else StatusDda.ABERTO,
+                atualizado_em=atualizado,
+                resposta_bruta=_sem_pii(item),
+            )
+        except (ValueError, TypeError):
+            # Sem encadear: a mensagem do pydantic carrega o dado de entrada.
+            raise Validacao(
+                "debito do BTG com dado ilegivel", resposta_bruta=_sem_pii(item)
+            ) from None
+
+    async def ativar_dda(self, cnpj: str) -> None:
+        resp = await self._transporte.requisitar(
+            "POST",
+            self._caminho_dda(cnpj),
+            operacao="dda_ativar",
+            cabecalhos=self._cabecalhos(),
+        )
+        self._conferir_ativacao(resp, ligado=True)
+
+    async def desativar_dda(self, cnpj: str) -> None:
+        resp = await self._transporte.requisitar(
+            "DELETE",
+            self._caminho_dda(cnpj),
+            operacao="dda_desativar",
+            cabecalhos=self._cabecalhos(),
+        )
+        self._conferir_ativacao(resp, ligado=False)
+
+    def _conferir_ativacao(self, resp: httpx.Response, *, ligado: bool) -> None:
+        """A resposta traz `data.status`; sem corpo, o 2xx basta."""
+        if not resp.content:
+            return
+        dados = self._json(resp)
+        situacao = (dados.get("data") or {}).get("status")
+        if situacao is None:
+            return
+        if (situacao in _STATUS_ATIVACAO) != ligado:
+            raise Validacao(
+                f"btg: DDA ficou {situacao} depois de "
+                f"{'ativar' if ligado else 'desativar'}",
+                resposta_bruta=_sem_pii(dados),
+            )
+
+    async def listar_debitos(
+        self,
+        cnpj: str,
+        desde: date | None = None,
+        cursor: str | None = None,
+    ) -> PaginaDebitos:
+        """Uma pagina da listagem. O cursor e o numero da proxima pagina.
+
+        `desde` filtra por vencimento minimo (`minDueDate`): a consulta nao tem
+        filtro por data de criacao (docs/btg-dda-duvidas.md).
+        """
+        pagina = 1
+        if cursor:
+            try:
+                pagina = int(cursor)
+            except ValueError:
+                raise Validacao("btg: cursor de debitos invalido") from None
+            if pagina < 1:
+                raise Validacao("btg: cursor de debitos invalido")
+        tamanho = self.tamanho_pagina_dda
+        consulta: dict[str, Any] = {"pageNumber": pagina, "pageSize": tamanho}
+        if desde is not None:
+            consulta["minDueDate"] = desde.isoformat()
+        cnpj_pagador = self._cnpj_dda(cnpj)
+        resp = await self._transporte.requisitar(
+            "GET",
+            f"{self._caminho_dda(cnpj, 'debits')}?{urlencode(consulta)}",
+            operacao="dda_listar",
+            cabecalhos=self._cabecalhos(),
+        )
+        dados = self._json(resp)
+        bruto = dados.get("data")
+        if not isinstance(bruto, list):
+            raise Validacao(
+                "listagem de debitos do BTG sem data", resposta_bruta=_sem_pii(dados)
+            )
+        itens = tuple(self._debito(item, cnpj_pagador) for item in bruto)
+        proximo = None
+        # Pagina curta e a ultima; o `_links.next` do exemplo oficial e lixo.
+        if itens and len(itens) >= tamanho and _tem_proximo(dados):
+            proximo = str(pagina + 1)
+        return PaginaDebitos(itens=itens, cursor_proximo=proximo)
+
+    async def resumo_debitos(self, cnpj: str) -> ResumoDda:
+        resp = await self._transporte.requisitar(
+            "GET",
+            self._caminho_dda(cnpj, "debits", "summary"),
+            operacao="dda_resumo",
+            cabecalhos=self._cabecalhos(),
+        )
+        dados = self._json(resp)
+        resumo = dados.get("data")
+        if not isinstance(resumo, dict):
+            raise Validacao(
+                "resumo de debitos do BTG sem data", resposta_bruta=_sem_pii(dados)
+            )
+
+        def item(chave: str) -> tuple[int, Decimal]:
+            bloco = resumo.get(chave)
+            if not isinstance(bloco, dict):
+                return 0, Decimal(0)
+            quantia = _decimal(bloco.get("amount")) or Decimal(0)
+            return int(bloco.get("count") or 0), quantia
+
+        total, valor_total = item("total")
+        abertos = sum(
+            item(chave)[0]
+            for chave in (
+                "totalCreated",
+                "totalOverdue",
+                "totalPendingApproval",
+                "totalScheduled",
+            )
+        )
+        try:
+            return ResumoDda(
+                quantidade=total,
+                valor_total=valor_total,
+                por_status={StatusDda.ABERTO: abertos},
+            )
+        except ValueError:
+            raise Validacao(
+                "resumo de debitos do BTG ilegivel", resposta_bruta=_sem_pii(dados)
+            ) from None
+
+    async def alterar_debito(
+        self, cnpj: str, id_banco: str, **campos: Any
+    ) -> DebitoDda:
+        """Unico campo que o BTG deixa mudar: `oculto` (mostrar ou ocultar)."""
+        desconhecidos = sorted(set(campos) - {"oculto"})
+        if desconhecidos:
+            raise NaoSuportado(
+                f"btg: alterar_debito so aceita 'oculto', recebeu {desconhecidos}"
+            )
+        if not isinstance(campos.get("oculto"), bool):
+            raise Validacao("btg: alterar_debito exige oculto=True ou False")
+        cnpj_pagador = self._cnpj_dda(cnpj)
+        resp = await self._transporte.requisitar(
+            "PATCH",
+            self._caminho_dda(cnpj, "debits"),
+            operacao="dda_alterar",
+            json={"items": [{"id": id_banco, "hidden": campos["oculto"]}]},
+            cabecalhos=self._cabecalhos(),
+        )
+        dados = self._json(resp)
+        bruto = dados.get("data")
+        if isinstance(bruto, list):
+            bruto = next(
+                (b for b in bruto if isinstance(b, dict) and b.get("id") == id_banco),
+                None,
+            )
+        return self._debito(bruto, cnpj_pagador)
+
+    def parse_webhook_dda(
+        self,
+        corpo: bytes | str | list | dict,
+        cabecalhos: Mapping[str, str] | None = None,
+    ) -> list[EventoDda]:
+        """Webhook `authorized-direct-debits.*` (enabled, disabled, debit-added,
+        debit-paid). Os demais eventos, inclusive os de cobranca, sao ignorados.
+
+        O `debit-added` ja traz o boleto: nao precisa reconsultar. O `debit-paid`
+        so muda o estado do boleto (nunca a contabilidade).
+        """
+        self._conferir_segredo(cabecalhos)
+        eventos = []
+        for item in self._itens_webhook(corpo):
+            if not isinstance(item, dict):
+                raise Validacao("webhook do BTG nao e um objeto")
+            sufixo = _sufixo_dda(item.get("event"))
+            tipo = _EVENTOS_DDA.get(sufixo) if sufixo else None
+            if tipo is None:
+                continue
+            dados = item.get("data")
+            if not isinstance(dados, dict):
+                raise Validacao("webhook de DDA do BTG sem data")
+            cnpj = _cnpj_do_evento(dados)
+            debitos = dados.get("debits") or []
+            if not isinstance(debitos, list):
+                raise Validacao("webhook de DDA do BTG com debits invalido")
+            momento = dados.get("date") or dados.get("updatedAt") or item.get("date")
+            try:
+                ocorrido = datetime_iso(momento) if momento else None
+            except (ValueError, TypeError):
+                raise Validacao("data do evento de DDA do BTG ilegivel") from None
+            identificador = item.get("eventId") or item.get("id")
+            eventos.append(
+                EventoDda(
+                    banco=self.banco,
+                    id_evento=str(identificador or hash_corpo(item)),
+                    tipo=tipo,
+                    cnpj_pagador=cnpj,
+                    debitos=tuple(self._debito(d, cnpj) for d in debitos),
+                    ocorrido_em=ocorrido,
+                    resposta_bruta=_sem_pii(item),
+                )
+            )
+        return eventos
+
+
+def _familia_cobranca(evento: str) -> bool:
+    nome = evento.strip().lower().rsplit("/", 1)[-1]
+    return nome.startswith(("collections.", "colections."))
+
+
+def _sufixo_dda(evento: Any) -> str | None:
+    """`debit-added` de `authorized-direct-debits.debit-added`, com ou sem prefixo."""
+    if not isinstance(evento, str):
+        return None
+    nome = evento.strip().lower()
+    posicao = nome.find(_PREFIXO_WEBHOOK_DDA)
+    if posicao < 0:
+        return None
+    return nome[posicao + len(_PREFIXO_WEBHOOK_DDA) :]
+
+
+def _cnpj_do_evento(dados: dict[str, Any]) -> str | None:
+    """CNPJ do pagador: `owner.taxId` ou o prefixo do `accountId`."""
+    dono = dados.get("owner") if isinstance(dados.get("owner"), dict) else {}
+    candidato = dono.get("taxId") or dono.get("document")
+    if not candidato and isinstance(dados.get("accountId"), str):
+        candidato = dados["accountId"].split("-", 1)[0]
+    if not isinstance(candidato, str):
+        return None
+    normalizado = normalizar(candidato)
+    return normalizado if len(normalizado) == 14 else None
+
+
+def _tem_proximo(dados: dict[str, Any]) -> bool:
+    links = dados.get("_links")
+    return isinstance(links, dict) and bool(links.get("next"))
+
+
+# --- OAuth (Authorization Code com PKCE) --------------------------------------
+
+
+def gerar_pkce() -> tuple[str, str]:
+    """`(code_verifier, code_challenge)` do PKCE S256 (RFC 7636)."""
+    verificador = secrets.token_urlsafe(64)
+    desafio = (
+        base64.urlsafe_b64encode(hashlib.sha256(verificador.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    return verificador, desafio
+
+
+def url_autorizacao(
+    config: BtgConfig,
+    redirect_uri: str,
+    state: str,
+    code_challenge: str,
+    escopos: str | Iterable[str],
+) -> str:
+    """URL do consentimento (BTG Id) para o usuario abrir no navegador.
+
+    `openid` e obrigatorio e entra sozinho. PKCE sempre S256.
+    """
+    lista = escopos.split() if isinstance(escopos, str) else list(escopos)
+    if "openid" not in lista:
+        lista.insert(0, "openid")
+    consulta = {
+        "response_type": "code",
+        "client_id": config.client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(lista),
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    return f"{config.url_autorizacao}?{urlencode(consulta, quote_via=quote)}"
+
+
+async def trocar_codigo(
+    config: BtgConfig,
+    codigo: str,
+    redirect_uri: str,
+    code_verifier: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """Troca o `code` do consentimento por tokens (Basic + PKCE).
+
+    Devolve `{"refresh_token", "access_token", "expires_in"}`. O chamador
+    persiste o refresh token (no Odoo, na conexao).
+    """
+    basico = base64.b64encode(
+        f"{config.client_id}:{config.client_secret}".encode()
+    ).decode()
+    dono = client is None
+    http = client or httpx.AsyncClient(timeout=30.0)
+    try:
+        try:
+            resp = await http.post(
+                config.url_token,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": codigo,
+                    "redirect_uri": redirect_uri,
+                    "code_verifier": code_verifier,
+                },
+                headers={"Authorization": f"Basic {basico}"},
+            )
+        except httpx.TransportError as exc:
+            raise Indisponivel(
+                f"erro de transporte ao trocar o codigo: {type(exc).__name__}"
+            ) from exc
+    finally:
+        if dono:
+            await http.aclose()
+    if resp.status_code == 429 or resp.status_code >= 500:
+        raise Indisponivel(
+            "BTG indisponivel ao trocar o codigo",
+            status_http=resp.status_code,
+            resposta_bruta=resp.text,
+        )
+    if resp.status_code >= 400:
+        raise Validacao(
+            "BTG recusou o codigo de autorizacao",
+            status_http=resp.status_code,
+            resposta_bruta=resp.text,
+        )
+    try:
+        corpo = resp.json()
+        refresh = corpo["refresh_token"]
+        acesso = corpo["access_token"]
+    except (ValueError, KeyError, TypeError):
+        raise Validacao(
+            "resposta do BTG sem refresh_token e access_token",
+            status_http=resp.status_code,
+        ) from None
+    return {
+        "refresh_token": refresh,
+        "access_token": acesso,
+        "expires_in": int(corpo.get("expires_in") or 3600),
+    }

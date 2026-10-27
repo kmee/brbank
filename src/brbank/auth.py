@@ -5,8 +5,10 @@ import base64
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
@@ -32,6 +34,33 @@ class _Token:
         return "_Token(***)"
 
 
+@dataclass(frozen=True)
+class TokenPersistido:
+    """Access token guardado fora do processo. `expira_em` e epoch (`time.time()`):
+    o relogio monotonico nao atravessa processos."""
+
+    valor: str
+    expira_em: float
+
+    def __repr__(self) -> str:
+        return "TokenPersistido(***)"
+
+
+@runtime_checkable
+class ArmazemToken(Protocol):
+    """Onde o token vive entre processos (no Odoo, uma tabela e uma trava de banco).
+
+    A `trava` serializa a renovacao: e sincrona, espera quem a segura e vale
+    entre processos. Quem a pega le o token de novo antes de renovar.
+    """
+
+    def ler(self, chave: tuple[str, str | None]) -> TokenPersistido | None: ...
+
+    def gravar(self, chave: tuple[str, str | None], token: TokenPersistido) -> None: ...
+
+    def trava(self, chave: tuple[str, str | None]) -> AbstractContextManager[None]: ...
+
+
 class _OAuth2Cacheado(Autenticador):
     """Base do OAuth2 com cache de token por (conta, escopo) e lock.
 
@@ -40,6 +69,11 @@ class _OAuth2Cacheado(Autenticador):
     `escopos` traduz a chave logica usada pelo adapter para o escopo OAuth.
     Subclasses definem so o formulario do pedido (`_formulario`).
     `cabecalhos_token` vai so no pedido de token (ex.: `x-api-key` do Sicredi).
+
+    Com `armazem`, o token tambem vive fora do processo: a memoria vale, depois
+    o armazem, e so entao um pedido novo, feito sob a trava do armazem (outro
+    processo pode ter renovado enquanto esperavamos). O relogio passa a ser
+    `time.time`, que atravessa processos.
     """
 
     def __init__(
@@ -49,17 +83,23 @@ class _OAuth2Cacheado(Autenticador):
         url_token: str,
         escopos: Mapping[str, str] | None = None,
         margem_s: float = 60.0,
-        relogio: Callable[[], float] = time.monotonic,
+        relogio: Callable[[], float] | None = None,
         cabecalhos_token: Mapping[str, str] | None = None,
+        armazem: ArmazemToken | None = None,
     ) -> None:
         self.conta = conta
         self._cabecalhos_token = dict(cabecalhos_token or {})
         self._url_token = url_token
         self._escopos = dict(escopos or {})
         self._margem = margem_s
+        self._armazem = armazem
+        if relogio is None:
+            relogio = time.time if armazem is not None else time.monotonic
         self._relogio = relogio
         self._tokens: dict[tuple[str, str | None], _Token] = {}
         self._locks: dict[tuple[str, str | None], asyncio.Lock] = {}
+        # Token que o banco recusou (401): o armazem pode ainda te-lo como valido.
+        self._recusados: dict[tuple[str, str | None], str] = {}
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(conta={self.conta!r})"
@@ -83,13 +123,18 @@ class _OAuth2Cacheado(Autenticador):
         return {"Authorization": f"Bearer {token}"}
 
     async def invalidar(self, escopo: str | None) -> None:
-        self._tokens.pop((self.conta, escopo), None)
+        chave = (self.conta, escopo)
+        antigo = self._tokens.pop(chave, None)
+        if antigo is not None and self._armazem is not None:
+            self._recusados[chave] = antigo.valor
 
     async def _token(self, escopo: str | None, client: httpx.AsyncClient) -> str:
         chave = (self.conta, escopo)
         atual = self._tokens.get(chave)
         if atual and atual.expira_em > self._relogio():
             return atual.valor
+        if self._armazem is not None:
+            return await self._token_com_armazem(chave, escopo, client)
         lock = self._locks.setdefault(chave, asyncio.Lock())
         async with lock:
             atual = self._tokens.get(chave)
@@ -98,6 +143,68 @@ class _OAuth2Cacheado(Autenticador):
             novo = await self._pedir(escopo, client)
             self._tokens[chave] = novo
             return novo.valor
+
+    def _do_armazem(self, chave: tuple[str, str | None]) -> _Token | None:
+        """Token do armazem se ainda vale e o banco nao o recusou."""
+        assert self._armazem is not None
+        persistido = self._armazem.ler(chave)
+        if (
+            persistido is None
+            or persistido.expira_em <= self._relogio()
+            or persistido.valor == self._recusados.get(chave)
+        ):
+            return None
+        return _Token(persistido.valor, persistido.expira_em)
+
+    async def _token_com_armazem(
+        self,
+        chave: tuple[str, str | None],
+        escopo: str | None,
+        client: httpx.AsyncClient,
+    ) -> str:
+        armazem = self._armazem
+        assert armazem is not None
+        lido = await asyncio.to_thread(self._do_armazem, chave)
+        if lido is not None:
+            self._tokens[chave] = lido
+            return lido.valor
+        # Trava do processo primeiro: so uma corrotina por chave espera a trava
+        # do armazem (que ocupa uma thread enquanto espera).
+        lock = self._locks.setdefault(chave, asyncio.Lock())
+        async with lock:
+            atual = self._tokens.get(chave)
+            if atual and atual.expira_em > self._relogio():
+                return atual.valor
+            trava = armazem.trava(chave)
+            # Uma thread so para entrar, ler, gravar e sair: travas presas a thread
+            # (RLock, cursor de banco) exigem que quem entra seja quem sai.
+            laco = asyncio.get_running_loop()
+            fio = ThreadPoolExecutor(max_workers=1)
+            try:
+                await laco.run_in_executor(fio, trava.__enter__)
+                try:
+                    # Outro processo pode ter renovado enquanto esperavamos.
+                    lido = await laco.run_in_executor(fio, self._do_armazem, chave)
+                    if lido is None:
+                        novo = await self._pedir(escopo, client)
+                        await laco.run_in_executor(
+                            fio,
+                            armazem.gravar,
+                            chave,
+                            TokenPersistido(novo.valor, novo.expira_em),
+                        )
+                        lido = novo
+                except BaseException as exc:
+                    await laco.run_in_executor(
+                        fio, trava.__exit__, type(exc), exc, exc.__traceback__
+                    )
+                    raise
+                else:
+                    await laco.run_in_executor(fio, trava.__exit__, None, None, None)
+            finally:
+                fio.shutdown(wait=False)
+            self._tokens[chave] = lido
+            return lido.valor
 
     async def _pedir(self, escopo: str | None, client: httpx.AsyncClient) -> _Token:
         dados = self._formulario()

@@ -55,6 +55,25 @@ BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda), o boleto h
 a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
 
+## DDA (boletos a pagar)
+
+O lado de pagar: `brbank.dda` define o contrato opcional `AdapterDda` (capacidades `CapacidadeDda`:
+ativacao, consulta, resumo, alteracao, webhook), no mesmo padrao da recorrencia. O `BtgAdapter` o
+implementa: `ativar_dda`, `desativar_dda`, `listar_debitos(cnpj, desde, cursor)` (paginado),
+`resumo_debitos`, `alterar_debito(cnpj, id, oculto=...)` e `parse_webhook_dda` (eventos
+`authorized-direct-debits.*`; `parse_webhook` da cobranca passou a ignorar familias desconhecidas).
+Cada boleto vira um `DebitoDda` (identidade: CNPJ do pagador mais linha digitavel normalizada).
+Rotas, suposicoes e duvidas: `docs/btg-dda-duvidas.md`.
+
+Para quem renova token em varios processos (Odoo com varios workers), `BtgConfig` aceita um
+`armazem` (`brbank.auth.ArmazemToken`: `ler`, `gravar` e uma `trava` entre processos) e
+`ler_refresh_token` (le o refresh token vigente dentro da trava, porque o BTG pode rotacionar). O
+consentimento OAuth tem `url_autorizacao(...)` e `trocar_codigo(...)` (Authorization Code com PKCE
+S256; `gerar_pkce()` gera o par).
+
+O simulador da API do BTG, para testes e e2e (so stdlib):
+`python -m brbank.simulador --porta 8899 --semente demo`. Ver `docs/simulador.md`.
+
 **Validacao em sandbox.** Um adapter (ou perfil Pix) so passa a `validado_sandbox = True` depois
 de rodar o ciclo contra o ambiente real do banco. Hoje: `sicoob` e o perfil Pix `sicoob`
 (2026-10-20). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em

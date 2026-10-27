@@ -418,8 +418,6 @@ def test_webhook_cancelado_nas_duas_grafias(adapter):
 def test_webhook_recusas(adapter):
     with pytest.raises(Validacao, match="desconhecido"):
         adapter.parse_webhook(_webhook("collections.expired", {"collectionId": "c"}))
-    with pytest.raises(Validacao, match="desconhecido"):
-        adapter.parse_webhook(_webhook("transactions.debit", {"collectionId": "c"}))
     with pytest.raises(Validacao, match="collectionId"):
         adapter.parse_webhook(_webhook("collections.paid", {}))
     with pytest.raises(Validacao, match="JSON"):
@@ -428,6 +426,19 @@ def test_webhook_recusas(adapter):
         adapter.parse_webhook(
             _webhook("collections.paid", {"collectionId": "c", "updatedAt": "ontem"})
         )
+
+
+def test_webhook_de_outra_familia_e_ignorado(adapter):
+    for evento in ("transactions.debit", "authorized-direct-debits.debit-added"):
+        assert adapter.parse_webhook(_webhook(evento, {"x": 1})) == []
+    misto = json.dumps(
+        [
+            {"event": "authorized-direct-debits.enabled", "data": {}},
+            {"event": "collections.paid", "data": {"collectionId": "c"}},
+        ]
+    )
+    [evento] = adapter.parse_webhook(misto)
+    assert evento.referencia == "c"
 
 
 def test_webhook_confere_segredo(falso):
