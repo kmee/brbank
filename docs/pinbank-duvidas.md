@@ -1,6 +1,6 @@
 # PinBank: duvidas em aberto do contrato
 
-Fonte unica usada: modulo Odoo `l10n_br_payment_boleto_pinbank` (kmee-odoo-addons,
+Fonte unica usada: modulo Odoo `l10n_br_payment_pinbank` (kmee-odoo-addons,
 branch 16.0). Nao ha documentacao oficial da API no repositorio. O que o modulo nao
 esclarece ficou fora do adapter ou recusado com `Validacao`, em vez de inventado.
 

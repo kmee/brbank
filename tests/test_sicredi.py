@@ -141,7 +141,7 @@ async def test_trunca_campos_longos(dormir):
     base = fazer_titulo()
     pagador = Pessoa(
         nome="N" * 60,
-        documento="11.222.333/0001-81",
+        documento="91.300.766/0001-47",
         endereco=Endereco(
             logradouro="L" * 60,
             numero="123",

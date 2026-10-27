@@ -24,7 +24,7 @@ def _config(**extra) -> BradescoConfig:
         "conta": "c1",
         "client_id": "cid",
         "client_secret": "segredo-cs",
-        "documento_beneficiario": "11.222.333/0001-81",
+        "documento_beneficiario": "91.300.766/0001-47",
         "agencia": "2856",
         "conta_corrente": "22654",
         "carteira": 9,
@@ -90,9 +90,9 @@ async def test_payload_de_registro(adapter, falso):
     corpo = falso.ultimo_corpo
     assert falso.chamadas[-1] == ("POST", REGISTRO)
     assert (corpo["nuCPFCNPJ"], corpo["filialCPFCNPJ"], corpo["ctrlCPFCNPJ"]) == (
-        "11222333",
+        "91300766",
         "0001",
-        "81",
+        "47",
     )
     assert corpo["idProduto"] == 9
     assert corpo["nuNegociacao"] == "285600000000022654"
@@ -115,7 +115,7 @@ async def test_payload_de_registro(adapter, falso):
     assert corpo["qtdeDiasJuros"] == 1
     assert corpo["nomeSacadorAvalista"] == "KMEE Ltda"
     assert corpo["cdIndCpfcnpjSacadorAvalista"] == 2
-    assert corpo["nuCpfcnpjSacadorAvalista"] == "11222333000181"
+    assert corpo["nuCpfcnpjSacadorAvalista"] == "91300766000147"
     assert corpo["listaMsgs"] == [
         {"mensagem": "linha um"},
         {"mensagem": "Jose da Conceicao"},
@@ -201,7 +201,7 @@ async def test_consulta_envia_identificacao(adapter, falso):
     consultado = await adapter.consultar_titulo(registrado.id_banco)
     assert falso.chamadas[-1] == ("POST", CONSULTA)
     assert falso.ultimo_corpo == {
-        "cpfCnpj": {"cpfCnpj": 11222333, "filial": 1, "controle": 81},
+        "cpfCnpj": {"cpfCnpj": 91300766, "filial": 1, "controle": 47},
         "produto": 9,
         "negociacao": 28560022654,
         "nossoNumero": 90000000001,
@@ -284,7 +284,7 @@ async def test_baixa(adapter, falso):
     assert baixado.status is StatusCanonico.BAIXADO
     assert falso.chamadas[-1] == ("POST", BAIXA)
     assert falso.ultimo_corpo == {
-        "cpfCnpj": {"cpfCnpj": "11222333", "filial": "0001", "controle": "81"},
+        "cpfCnpj": {"cpfCnpj": "91300766", "filial": "0001", "controle": "47"},
         "produto": 9,
         "negociacao": 28560022654,
         "nossoNumero": registrado.id_banco,
@@ -367,5 +367,5 @@ def test_config_invalida(extra):
 
 def test_repr_da_config_nao_vaza_segredos():
     texto = repr(_config(certificado_pem=b"cert-pem", chave_pem=b"chave-pem"))
-    for segredo in ("segredo-cs", "cert-pem", "chave-pem", "11222333000181"):
+    for segredo in ("segredo-cs", "cert-pem", "chave-pem", "91300766000147"):
         assert segredo not in texto

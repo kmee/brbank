@@ -79,24 +79,24 @@ DDA ativo para o CNPJ e um destino registrado.
 
 ## Semente `demo`
 
-DDA ativo para o CNPJ ficticio **11.222.333/0001-81** (`11222333000181`), com 12 debitos. Os
+DDA ativo para o CNPJ ficticio **91.300.766/0001-47** (`91300766000147`), com 12 debitos. Os
 vencimentos sao relativos a data de referencia (`--hoje`, padrao a data de hoje), para a demo nao
 envelhecer. O modulo Odoo de demo cria faturas de fornecedor que casam com estes dados.
 
 | # | Beneficiario | CNPJ | Valor | Vencimento | Banco | Caso de matching |
 |---|---|---|---|---|---|---|
-| 1 | ALFA EMBALAGENS LTDA | 45000001000174 | 1240.00 | hoje +5 dias | 341 | valor e vencimento iguais ao da fatura |
-| 2 | BETA PAPEIS S.A. | 45000002000119 | 3587.50 | hoje +8 dias | 001 | divergencia de valor (fatura de 3500.00) |
-| 3 | GAMA LOGISTICA LTDA | 45000003000163 | 890.00 | hoje +10 dias | 237 | divergencia de vencimento (fatura vence 3 dias antes) |
-| 4 | DELTA LOCACOES LTDA | 45000004000108 | 2500.00 | hoje +15 dias | 104 | duas parcelas iguais (1 de 2) |
-| 5 | DELTA LOCACOES LTDA | 45000004000108 | 2500.00 | hoje +15 dias | 104 | duas parcelas iguais (2 de 2) |
-| 6 | OMEGA SECURITIZADORA DE CREDITOS S.A. | 45000005000152 | 4200.00 | hoje +9 dias | 208 | cessao: emitido pela securitizadora |
+| 1 | ALFA EMBALAGENS LTDA | 94623756000130 | 1240.00 | hoje +5 dias | 341 | valor e vencimento iguais ao da fatura |
+| 2 | BETA PAPEIS S.A. | 92455101000175 | 3587.50 | hoje +8 dias | 001 | divergencia de valor (fatura de 3500.00) |
+| 3 | GAMA LOGISTICA LTDA | 93449834000160 | 890.00 | hoje +10 dias | 237 | divergencia de vencimento (fatura vence 3 dias antes) |
+| 4 | DELTA LOCACOES LTDA | 91428659000107 | 2500.00 | hoje +15 dias | 104 | duas parcelas iguais (1 de 2) |
+| 5 | DELTA LOCACOES LTDA | 91428659000107 | 2500.00 | hoje +15 dias | 104 | duas parcelas iguais (2 de 2) |
+| 6 | OMEGA SECURITIZADORA DE CREDITOS S.A. | 95916996000196 | 4200.00 | hoje +9 dias | 208 | cessao: emitido pela securitizadora |
 | 7 | SIGMA SERVICOS LTDA | 45000007000141 | 760.00 | hoje +6 dias | 756 | CNPJ desconhecido, sem fatura |
-| 8 | ZETA METALURGICA LTDA | 45000008000196 | 3000.00 | hoje +11 dias | 001 | agrupa duas NFs (1800.00 e 1200.00) |
-| 9 | ETA SUPRIMENTOS LTDA | 45000009000130 | 540.00 | hoje +4 dias | 341 | fornecedor conhecido sem fatura |
-| 10 | TETA MANUTENCAO LTDA | 45000010000165 | 1100.00 | hoje -3 dias | 237 | boleto vencido com fatura vencida |
-| 11 | IOTA GRAFICA LTDA | 45000011000100 | 680.00 | hoje +7 dias | 104 | possivel duplicidade (1 de 2) |
-| 12 | IOTA GRAFICA LTDA | 45000011000100 | 680.00 | hoje +7 dias | 104 | possivel duplicidade (2 de 2) |
+| 8 | ZETA METALURGICA LTDA | 93685439000186 | 3000.00 | hoje +11 dias | 001 | agrupa duas NFs (1800.00 e 1200.00) |
+| 9 | ETA SUPRIMENTOS LTDA | 90889030000193 | 540.00 | hoje +4 dias | 341 | fornecedor conhecido sem fatura |
+| 10 | TETA MANUTENCAO LTDA | 97282349000103 | 1100.00 | hoje -3 dias | 237 | boleto vencido com fatura vencida |
+| 11 | IOTA GRAFICA LTDA | 93493719000192 | 680.00 | hoje +7 dias | 104 | possivel duplicidade (1 de 2) |
+| 12 | IOTA GRAFICA LTDA | 93493719000192 | 680.00 | hoje +7 dias | 104 | possivel duplicidade (2 de 2) |
 
 Faturas de demo sugeridas (partner com o CNPJ da tabela, `document_number` livre):
 
@@ -105,7 +105,7 @@ Faturas de demo sugeridas (partner com o CNPJ da tabela, `document_number` livre
 - 3 GAMA: 1 fatura de 890.00 vencendo em +7 (3 dias antes do boleto).
 - 4 e 5 DELTA: 2 faturas de 2500.00 vencendo em +15 (ambiguidade: nunca vincula sozinho).
 - 6 OMEGA: fatura de 4200.00 vencendo em +9 do fornecedor **EPSILON INDUSTRIA LTDA**
-  (`45000006000105`, sem boleto proprio); a OMEGA entra como cessionaria cadastrada do fornecedor.
+  (`95564920000149`, sem boleto proprio); a OMEGA entra como cessionaria cadastrada do fornecedor.
   A API do BTG nao traz sacador avalista, entao a cessao chega como boleto cujo beneficiario e a
   securitizadora.
 - 7 SIGMA: nenhum partner e nenhuma fatura (fornecedor desconhecido).

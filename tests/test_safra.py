@@ -209,7 +209,7 @@ async def test_pessoa_juridica_e_sem_email(dormir):
     adapter, falso = montar(dormir)
     pagador = Pessoa(
         nome="KMEE Ltda",
-        documento="11.222.333/0001-81",
+        documento="91.300.766/0001-47",
         endereco=Endereco(
             logradouro="Av. Brasil",
             bairro="Centro",
@@ -223,7 +223,7 @@ async def test_pessoa_juridica_e_sem_email(dormir):
     )
     enviado = falso.ultimo_corpo["documento"]["pagador"]
     assert enviado["tipoPessoa"] == "J"
-    assert enviado["numeroDocumento"] == "11222333000181"
+    assert enviado["numeroDocumento"] == "91300766000147"
     assert enviado["endereco"]["logradouro"] == "Av. Brasil, SN"
     assert "email" not in enviado
 

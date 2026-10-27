@@ -34,7 +34,8 @@ class EnvelopeNulo(Envelope):
 class EnvelopeAesCbc(Envelope):
     """AES-CBC com PKCS7 e base64, no formato do PinBank.
 
-    Portado de `utils/cypher.py` do modulo Odoo `l10n_br_payment_boleto_pinbank`.
+    Portado de `utils/cypher.py` do modulo Odoo `l10n_br_payment_boleto_pinbank`
+    (hoje `l10n_br_payment_pinbank`).
     A requisicao vai como `{"Data": {"Json": <base64 do JSON cifrado>}}` e a
     resposta volta no mesmo formato. O IV e fixo em zeros porque o PinBank
     assim exige: o mesmo texto gera sempre o mesmo cifrado, entao o envelope

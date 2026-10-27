@@ -195,7 +195,7 @@ def _bradesco(dormir):
         conta="conta-bradesco",
         client_id="id",
         client_secret="segredo",
-        documento_beneficiario="11.222.333/0001-81",
+        documento_beneficiario="91.300.766/0001-47",
         agencia="2856",
         conta_corrente="22654",
         carteira=9,
@@ -241,7 +241,7 @@ def _santander(dormir):
         client_secret="segredo",
         workspace_id=WORKSPACE,
         convenio="3567206",
-        chave_pix="11222333000181",
+        chave_pix="91300766000147",
         tipo_chave_pix="CNPJ",
         gerar_nosso_numero=lambda _titulo: next(sequencia),
     )

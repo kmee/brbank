@@ -183,7 +183,7 @@ async def test_payload_com_encargos(adapter, falso):
     assert corpo["dataVencimento"] == "2026-12-10"
     assert corpo["pagador"]["numeroCpfCnpj"] == "52998224725"
     assert corpo["pagador"]["endereco"] == "Rua das Flores 10"
-    assert corpo["beneficiarioFinal"]["numeroCpfCnpj"] == "11222333000181"
+    assert corpo["beneficiarioFinal"]["numeroCpfCnpj"] == "91300766000147"
     assert corpo["tipoMulta"] == 2
     assert corpo["dataMulta"] == "2026-12-11"
     assert corpo["tipoJurosMora"] == 2

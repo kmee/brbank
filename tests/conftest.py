@@ -5,7 +5,7 @@ import pytest
 from brbank import Endereco, Pessoa, Titulo
 
 CPF_VALIDO = "529.982.247-25"
-CNPJ_VALIDO = "11.222.333/0001-81"
+CNPJ_VALIDO = "91.300.766/0001-47"
 
 
 def endereco() -> Endereco:

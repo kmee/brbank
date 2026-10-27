@@ -58,7 +58,7 @@ def adapter(falso, dormir):
 
 @pytest.fixture
 def hibrido(falso, dormir):
-    return _adapter(falso, dormir, chave_pix="11222333000181", tipo_chave_pix="CNPJ")
+    return _adapter(falso, dormir, chave_pix="91300766000147", tipo_chave_pix="CNPJ")
 
 
 def test_entry_point_e_marca_de_validacao():
@@ -126,7 +126,7 @@ async def test_payload_de_registro(adapter, falso):
     assert corpo["beneficiary"] == {
         "name": "KMEE Ltda",
         "documentType": "CNPJ",
-        "documentNumber": "11222333000181",
+        "documentNumber": "91300766000147",
     }
     assert corpo["documentKind"] == "DUPLICATA_MERCANTIL"
     assert corpo["paymentType"] == "REGISTRO"
@@ -191,7 +191,7 @@ async def test_registro_sem_linha_fica_pendente(dormir):
 
 async def test_hibrido_envia_chave_e_le_qr(hibrido, falso):
     registrado = await hibrido.registrar_titulo(fazer_titulo())
-    assert falso.ultimo_corpo["key"] == {"type": "CNPJ", "dictKey": "11222333000181"}
+    assert falso.ultimo_corpo["key"] == {"type": "CNPJ", "dictKey": "91300766000147"}
     assert registrado.pix_copia_cola == "00020101021226..."
     consultado = await hibrido.consultar_titulo(registrado.id_banco)
     assert consultado.pix_copia_cola == "00020101021226..."

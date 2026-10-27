@@ -162,7 +162,7 @@ async def test_payload_de_registro(adapter, falso):
         "aceite": "N",
     }
     assert t["sacador"]["tipo_pessoa"] == "J"
-    assert t["sacador"]["cpf_cnpj"] == "11222333000181"
+    assert t["sacador"]["cpf_cnpj"] == "91300766000147"
     assert t["instrucoes"] == {
         "juros": {"codigo": 2, "taxa": "1.00"},
         "multa": {"codigo": 2, "taxa": "2.0"},

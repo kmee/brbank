@@ -11,7 +11,7 @@ from tests.conftest import CPF_VALIDO, fazer_titulo
 
 def test_cpf_e_cnpj_numericos():
     assert normalizar_documento(CPF_VALIDO) == "52998224725"
-    assert normalizar_documento("11.222.333/0001-81") == "11222333000181"
+    assert normalizar_documento("91.300.766/0001-47") == "91300766000147"
     assert not cpf_valido("11111111111")
     assert not cnpj_valido("11222333000180")
 
@@ -68,14 +68,14 @@ def test_mascara_dados_pessoais():
         {
             "pagador": {"nome": "Maria", "cpfCnpj": "52998224725", "uf": "MG"},
             "pdf": "JVBERi0" * 100,
-            "msg": "doc 529.982.247-25 e 11222333000181 ok",
+            "msg": "doc 529.982.247-25 e 91300766000147 ok",
             "token": "abc",
         }
     )
     assert saida["pagador"] == {"nome": "***", "cpfCnpj": "***", "uf": "MG"}
     assert saida["pdf"] == "***"
     assert saida["token"] == "***"
-    assert "529" not in saida["msg"] and "11222333" not in saida["msg"]
+    assert "529" not in saida["msg"] and "91300766" not in saida["msg"]
     assert mascarar('{"email": "a@b.c"}') == {"email": "***"}
     assert mascarar(b"abc") == "<bytes:3>"
     assert mascarar("A" * 400) == "<omitido:400>"

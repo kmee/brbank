@@ -14,7 +14,7 @@ from brbank.dda import AdapterDda
 from brbank.simulador.dados import montar_linha_digitavel
 from tests.conftest import CNPJ_VALIDO
 
-CNPJ = "11222333000181"
+CNPJ = "91300766000147"
 LINHA = montar_linha_digitavel(
     banco="208", valor=Decimal("24193.61"), vencimento=date(2026, 12, 1), semente="x"
 )
@@ -110,7 +110,7 @@ DISABLED = {
     "status": "DISABLED",
 }
 ENABLED = {
-    "accountId": "37297902000141-208-50-003886850",
+    "accountId": "98801183000149-208-50-003886850",
     "date": "2022-03-02T22:01:55.274Z",
     "creditDebitIndicator": "DEBIT",
     "amount": 30900,
@@ -196,7 +196,7 @@ def test_enabled_e_disabled():
     assert ligado.tipo is TipoEventoDda.DDA_ATIVADO
     assert ligado.debitos == ()
     # sem owner: o CNPJ vem do prefixo do accountId
-    assert ligado.cnpj_pagador == "37297902000141"
+    assert ligado.cnpj_pagador == "98801183000149"
     assert ligado.ocorrido_em == datetime(
         2022, 3, 2, 22, 1, 55, 274000, tzinfo=timezone.utc
     )
@@ -357,7 +357,7 @@ async def test_ativar_e_desativar_usam_a_rota_e_conferem_o_status():
     inativo = {"data": {"id": "d", "status": "DISABLED"}}
     banco = _Banco(httpx.Response(200, json=ativo), httpx.Response(200, json=inativo))
     adapter = _adapter(banco)
-    await adapter.ativar_dda("11.222.333/0001-81")
+    await adapter.ativar_dda("91.300.766/0001-47")
     await adapter.desativar_dda(CNPJ)
     assert [(c.method, c.url.path) for c in banco.chamadas] == [
         ("POST", f"/{CNPJ}/banking/direct-debit"),
