@@ -233,6 +233,39 @@ async def test_webhooks_ponta_a_ponta(vazio):
         receptor.parar()
 
 
+async def test_admin_desativa_e_reativa_o_dda_com_webhook(sim):
+    receptor = Receptor()
+    adapter = BtgAdapter(config_para(sim))
+    try:
+        admin(sim, "POST", "/webhook", {"url": receptor.url})
+        resposta = admin(sim, "POST", f"/dda/{CNPJ_DEMO}/desativar")
+        assert resposta["status"] == "DISABLED"
+        assert resposta["webhook"]["status_http"] == 200
+        # O banco desligou: a listagem recusa, como no BTG real.
+        with pytest.raises(Exception):  # noqa: B017
+            await _todos(adapter)
+        estado = admin(sim, "GET", "/estado")
+        assert estado["dda"][CNPJ_DEMO]["status"] == "DISABLED"
+        resposta = admin(sim, "POST", f"/dda/{CNPJ_DEMO}/ativar")
+        assert resposta["status"] == "ENABLED"
+        assert len(await _todos(adapter)) == 12
+        eventos = []
+        for cabecalhos, corpo in receptor.recebidos:
+            eventos += adapter.parse_webhook_dda(corpo, cabecalhos)
+        assert [e.tipo for e in eventos] == [
+            TipoEventoDda.DDA_DESATIVADO,
+            TipoEventoDda.DDA_ATIVADO,
+        ]
+        assert {e.cnpj_pagador for e in eventos} == {CNPJ_DEMO}
+        # CNPJ invalido e acao desconhecida
+        for caminho in ("/dda/123/desativar", f"/dda/{CNPJ_DEMO}/explodir"):
+            resp = httpx.post(f"{sim.url}/_sim{caminho}", timeout=10)
+            assert resp.status_code in (400, 404)
+    finally:
+        await adapter.aclose()
+        receptor.parar()
+
+
 async def test_webhook_com_destino_fora_do_ar_nao_derruba_o_simulador(vazio):
     receptor = Receptor(status=500)
     admin(vazio, "POST", "/webhook", {"url": receptor.url})

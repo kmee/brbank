@@ -72,6 +72,7 @@ DDA ativo para o CNPJ e um destino registrado.
 | `POST /_sim/debitos/<id>/pagar` | status `PAYMENT_CONFIRMED` e webhook `debit-paid` |
 | `POST /_sim/debitos/<id>/cancelar` | o debito some da listagem (o BTG nao tem evento de cancelamento) |
 | `POST /_sim/debitos/<id>/reenviar` | reenvia o ultimo webhook do debito (teste de deduplicacao) |
+| `POST /_sim/dda/<cnpj>/desativar` e `/ativar` | o banco liga ou desliga o DDA da empresa sozinho (webhook `disabled` ou `enabled`; a listagem passa a recusar com 403) |
 | `POST /_sim/revogar-tokens` | invalida todos os access tokens (forca 401 e renovacao) |
 | `POST /_sim/reset` `{vazio?}` | volta ao estado de partida (com a semente); `vazio:true` limpa tudo |
 | `GET /_sim/estado` | `{hoje, dda, debitos, eventos, renovacoes_token, tokens_emitidos, webhook}` |

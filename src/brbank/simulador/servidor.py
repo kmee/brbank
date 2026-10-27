@@ -552,10 +552,8 @@ def criar_handler(estado: Estado) -> type[BaseHTTPRequestHandler]:
                     return self._ocultar(cnpj)
             return _erro(405, "metodo nao permitido")
 
-        def _ativacao(self, metodo: str, cnpj: str) -> tuple[int, Any]:
-            if metodo not in ("POST", "DELETE"):
-                return _erro(405, "metodo nao permitido")
-            ligar = metodo == "POST"
+        def _alternar_dda(self, cnpj: str, ligar: bool) -> tuple[dict[str, Any], Any]:
+            """Liga ou desliga o DDA da empresa e monta o evento (o caller envia)."""
             with estado.lock:
                 registro = estado.dda.get(cnpj) or estado._novo_dda(cnpj, "DISABLED")
                 registro["status"] = "ENABLED" if ligar else "DISABLED"
@@ -563,20 +561,42 @@ def criar_handler(estado: Estado) -> type[BaseHTTPRequestHandler]:
                 envelope = estado.montar_evento(
                     "enabled" if ligar else "disabled", cnpj
                 )
-                resposta = {
-                    "data": {
-                        "id": registro["id"],
-                        "owner": {"document": cnpj, "name": registro["nome"]},
-                        "status": registro["status"],
-                        "tags": [],
-                    },
-                    "_links": {
-                        "enable": _link(f"/direct-debits/{registro['id']}", "POST"),
-                        "disable": _link(f"/direct-debits/{registro['id']}", "DELETE"),
-                    },
-                }
+                return dict(registro), envelope
+
+        def _ativacao(self, metodo: str, cnpj: str) -> tuple[int, Any]:
+            if metodo not in ("POST", "DELETE"):
+                return _erro(405, "metodo nao permitido")
+            ligar = metodo == "POST"
+            registro, envelope = self._alternar_dda(cnpj, ligar)
+            resposta = {
+                "data": {
+                    "id": registro["id"],
+                    "owner": {"document": cnpj, "name": registro["nome"]},
+                    "status": registro["status"],
+                    "tags": [],
+                },
+                "_links": {
+                    "enable": _link(f"/direct-debits/{registro['id']}", "POST"),
+                    "disable": _link(f"/direct-debits/{registro['id']}", "DELETE"),
+                },
+            }
             estado.enviar(envelope)
             return 200, resposta
+
+        def _admin_dda(self, cnpj: str, acao: str) -> tuple[int, Any]:
+            """O banco liga ou desliga o DDA sozinho (webhook enabled ou disabled)."""
+            cnpj = cnpj.upper()
+            if not _CNPJ.fullmatch(cnpj):
+                return _erro(400, "cnpj invalido (14 caracteres)")
+            if acao not in ("ativar", "desativar"):
+                return _erro(404, "acao desconhecida", "sim:not-found")
+            registro, envelope = self._alternar_dda(cnpj, acao == "ativar")
+            entrega = estado.enviar(envelope)
+            return 200, {
+                "cnpj": cnpj,
+                "status": registro["status"],
+                "webhook": entrega,
+            }
 
         def _listar(self, cnpj: str, consulta: dict[str, list[str]]) -> tuple[int, Any]:
             pagina = int((consulta.get("pageNumber") or ["1"])[0])
@@ -633,6 +653,8 @@ def criar_handler(estado: Estado) -> type[BaseHTTPRequestHandler]:
                 return 200, {"ok": True, "url": estado.webhook_url}
             if partes == ["debitos"]:
                 return self._criar_debito(self._json_corpo())
+            if len(partes) == 3 and partes[0] == "dda":
+                return self._admin_dda(partes[1], partes[2])
             if len(partes) == 3 and partes[0] == "debitos":
                 return self._acao_debito(partes[1], partes[2])
             return _erro(404, "rota desconhecida", "sim:not-found")
