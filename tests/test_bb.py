@@ -54,10 +54,10 @@ def titulo_numerico(**kw):
     return fazer_titulo(**kw).model_copy(update={"seu_numero": "42"})
 
 
-def test_entry_point_e_nao_validado():
+def test_entry_point_e_validado():
     classe = obter_classe("bb")
     assert classe is BancoDoBrasilAdapter
-    assert classe.validado_sandbox is False
+    assert classe.validado_sandbox is True
 
 
 def test_convenio_de_6_e_7_digitos():
@@ -341,6 +341,31 @@ async def test_resposta_de_erro_sai_mascarada(falso, dormir):
     with pytest.raises(Validacao) as erro:
         await adapter.registrar_titulo(titulo_numerico())
     assert "52998224725" not in str(erro.value.resposta_bruta)
+
+
+async def test_instrucao_cedo_demais_e_retryable_sem_retentar(falso, dormir, dormidas):
+    # Resposta real da homologacao para instrucao logo apos o registro.
+    def tratar(request):
+        if request.url.path == "/oauth/token":
+            return falso.tratar(request)
+        return httpx.Response(
+            400,
+            json={
+                "errors": [
+                    {
+                        "code": "4923876.1",
+                        "message": "Boleto em processamento (ha menos de 30 minutos)",
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(tratar))
+    adapter = BancoDoBrasilAdapter(config(), client=client, dormir=dormir)
+    with pytest.raises(Indisponivel) as erro:
+        await adapter.baixar_titulo("00012345670000000042")
+    assert erro.value.retryable
+    assert dormidas == []
 
 
 async def test_resposta_de_registro_sem_numero(falso, dormir):

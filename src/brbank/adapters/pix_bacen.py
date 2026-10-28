@@ -151,8 +151,12 @@ _PERFIS = (
         param_app_key="gw-dev-app-key",
         mtls_sandbox=False,
         alias_resposta={"textoImagemQRcode": "pixCopiaECola"},
+        # cob e cobv: registrar, consultar, remover e liquidar pelo simulador da
+        # homologacao em 28/10/2026 (tests/integracao/test_bb_homologacao.py).
+        validado_sandbox=True,
         observacoes=(
             "API v2; a v1 (api.bb.com.br/pix/v1) esta em docs/pix-duvidas.md",
+            "homologacao sem mTLS no host api.hm; api-pix.hm exige certificado",
         ),
     ),
     PerfilPsp(
