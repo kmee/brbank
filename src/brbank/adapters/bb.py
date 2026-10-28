@@ -2,9 +2,8 @@
 
 Sem modulo Odoo de origem. O comportamento foi levantado por leitura, como
 documentacao, do ACBrBoleto (LGPL, nenhum codigo portado) e confrontado com a
-doc publica quando acessivel. A fonte oficial (developers.bb.com.br) nao foi
-legivel nesta sessao: tudo que depende dela esta em `docs/bb-duvidas.md` e o
-adapter nasce com `validado_sandbox = False`.
+doc publica quando acessivel. Validado na homologacao do BB em 28/10/2026:
+registro, consulta, prorrogacao, abatimento e baixa (docs/bb-duvidas.md).
 
 Pontos do contrato:
 
@@ -31,7 +30,7 @@ import httpx
 from brbank.adapter import BankAdapter
 from brbank.auth import OAuth2ClientCredentials
 from brbank.capacidades import Capacidade
-from brbank.erros import NaoSuportado, Validacao
+from brbank.erros import Indisponivel, NaoSuportado, Validacao
 from brbank.modelos import (
     EventoCanonico,
     Instrucao,
@@ -44,11 +43,17 @@ from brbank.status import StatusCanonico, TabelaStatus
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte
 
 URL_PRODUCAO = "https://api.bb.com.br/cobrancas/v2"
-URL_SANDBOX = "https://api.sandbox.bb.com.br/cobrancas/v2"
+# Aplicacao "Em teste" do portal usa a homologacao (hm). O host api.sandbox
+# serve certificado de outro dominio desde 07/2026 (docs/bb-duvidas.md).
+URL_SANDBOX = "https://api.hm.bb.com.br/cobrancas/v2"
 TOKEN_PRODUCAO = "https://oauth.bb.com.br/oauth/token"
-TOKEN_SANDBOX = "https://oauth.sandbox.bb.com.br/oauth/token"
+TOKEN_SANDBOX = "https://oauth.hm.bb.com.br/oauth/token"
 
-# Escopos citados por fonte de terceiros (CIGAM); nao confirmados no oficial.
+# Recusa de instrucao com o boleto registrado ha menos de 30 minutos: repetir
+# depois funciona, entao vira Indisponivel e nao Validacao.
+CODIGO_EM_PROCESSAMENTO = "4923876"
+
+# Confirmados no OAuth de homologacao em 28/10/2026.
 ESCOPOS = {
     "escrita": "cobrancas.boletos-requisicao",
     "leitura": "cobrancas.boletos-info",
@@ -168,6 +173,17 @@ def _dinheiro(valor: Any) -> Decimal | None:
         raise Validacao("valor monetario ilegivel na resposta do BB") from exc
 
 
+def _em_processamento(bruto: Any) -> bool:
+    if isinstance(bruto, str):
+        return CODIGO_EM_PROCESSAMENTO in bruto
+    erros = bruto.get("errors") if isinstance(bruto, dict) else None
+    return any(
+        str(e.get("code", "")).startswith(CODIGO_EM_PROCESSAMENTO)
+        for e in erros or ()
+        if isinstance(e, dict)
+    )
+
+
 def _fmt(dia: date) -> str:
     return dia.strftime("%d.%m.%Y")
 
@@ -209,7 +225,7 @@ class BancoDoBrasilAdapter(BankAdapter):
     banco: ClassVar[str] = "bb"
     capacidades: ClassVar[Capacidade] = Capacidade.ALTERACAO | Capacidade.BAIXA
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
-    validado_sandbox: ClassVar[bool] = False
+    validado_sandbox: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -268,14 +284,23 @@ class BancoDoBrasilAdapter(BankAdapter):
         escopo: str,
         json: Any = None,
     ) -> httpx.Response:
-        return await self._transporte.requisitar(
-            metodo,
-            caminho,
-            operacao=operacao,
-            escopo=escopo,
-            json=json,
-            cabecalhos=self._cabecalhos(),
-        )
+        try:
+            return await self._transporte.requisitar(
+                metodo,
+                caminho,
+                operacao=operacao,
+                escopo=escopo,
+                json=json,
+                cabecalhos=self._cabecalhos(),
+            )
+        except Validacao as exc:
+            if _em_processamento(exc.resposta_bruta):
+                raise Indisponivel(
+                    "bb: boleto registrado ha menos de 30 minutos, repetir depois",
+                    status_http=exc.status_http,
+                    resposta_bruta=exc.resposta_bruta,
+                ) from exc
+            raise
 
     def _nosso_numero(self, titulo: Titulo) -> str:
         gerador = self._config.gerar_nosso_numero

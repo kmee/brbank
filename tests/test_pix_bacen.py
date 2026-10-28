@@ -53,7 +53,7 @@ def test_so_o_perfil_sicoob_validado_em_sandbox():
         "santander",
         "efi",
     }
-    assert {n for n, p in PERFIS.items() if p.validado_sandbox} == {"sicoob"}
+    assert {n for n, p in PERFIS.items() if p.validado_sandbox} == {"bb", "sicoob"}
 
 
 def test_bnb_sem_perfil():

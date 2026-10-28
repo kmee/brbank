@@ -27,7 +27,7 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 | Asaas (gateway) | `asaas` | API v3: boleto, Pix e fatura hospedada, chave de API | hibrido, alteracao, baixa, PDF, webhook, Pix cob e cobv | oficial (OpenAPI) |
 | Inter (077) | `inter` | Cobranca v3, boleto hibrido | hibrido, so hibrido, baixa, PDF, webhook | Odoo |
 | PinBank | `pinbank` | Boleto, envelope AES-CBC | baixa | Odoo |
-| Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | publica e terceiros |
+| Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | homologacao |
 | Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | oficial |
 | Bradesco (237) | `bradesco` | Cobranca convencional (sem QR Code) | baixa | publica e terceiros |
 | BTG Pactual (208) | `btg` | Banking Collections, bolepix | hibrido, alteracao, baixa, PDF, webhook, emissao assincrona | oficial |
@@ -55,6 +55,21 @@ BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda), o boleto h
 a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
 
+## Pagamento e extrato
+
+`brbank.pagamento` define o contrato opcional `AdapterPagamento` (capacidades
+`CapacidadePagamento`): pagamento so em lote (`LotePagamento` de um tipo: boleto, guia, Pix ou
+transferencia), aceite e estado por linha, `reservar_numero_lote` antes do envio (o chamador
+grava o numero e resolve um timeout consultando, nunca reenviando), `liberar_lote`,
+`consultar_lote`, `consultar_pagamento` e `cancelar_pagamentos`. Primeiro adapter:
+`brbank.adapters.bb_pagamento` (Pagamentos em Lote do BB, validado na homologacao).
+
+`brbank.extrato` define `AdapterExtrato`: `listar_lancamentos(conta, desde, ate, cursor)`
+paginado, lancamentos (`LancamentoExtrato`, valor positivo com sinal C/D) separados das linhas
+de saldo. No Odoo o consumidor e um provider do `account_statement_import_online` da OCA.
+Primeiro adapter: `brbank.adapters.bb_extrato` (Extratos v2 do BB, mTLS, ainda sem validacao).
+Como validar contra o BB: `docs/bb-homologacao.md`.
+
 ## DDA (boletos a pagar)
 
 O lado de pagar: `brbank.dda` define o contrato opcional `AdapterDda` (capacidades `CapacidadeDda`:
@@ -76,7 +91,8 @@ O simulador da API do BTG, para testes e e2e (so stdlib):
 
 **Validacao em sandbox.** Um adapter (ou perfil Pix) so passa a `validado_sandbox = True` depois
 de rodar o ciclo contra o ambiente real do banco. Hoje: `sicoob` e o perfil Pix `sicoob`
-(2026-10-20). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em
+(2026-10-20), o `bb`, o perfil Pix `bb` e o `bb_pagamento` (2026-10-28, homologacao do BB com
+credencial de aplicacao "Em teste", em `tests/integracao/test_bb_homologacao.py`). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em
 producao, mas o adapter da biblioteca ainda nao rodou contra o banco.
 
 Os testes contra sandbox ficam em `tests/integracao/`, marcados `sandbox`, fora da execucao padrao
@@ -87,11 +103,12 @@ BRBANK_SICOOB_SANDBOX_CLIENT_ID=... BRBANK_SICOOB_SANDBOX_TOKEN=... \
     uv run pytest -m sandbox tests/integracao
 ```
 
-So entra aqui sandbox com credencial de teste publica (publicada pelo banco para todos). Em
-2026-10-20 so o Sicoob tinha: Client ID e token fixos na pagina Sandbox do portal do Sicoob,
-para boleto e Pix. Banrisul, BB, BTG, C6, Inter, Itau, Santander, Sicredi e Efi exigem cadastro
-de aplicacao ou conta (o sandbox responde 401/403 sem credencial) e ficam para quando houver
-credencial de cliente. O sandbox do Sicoob valida a requisicao contra o swagger, mas responde
+O Sicoob publica credencial de teste para todos (Client ID e token fixos na pagina Sandbox do
+portal, para boleto e Pix). O BB exige uma aplicacao "Em teste" no portal: o teste le o arquivo
+de credencial que o portal baixa (`BRBANK_BB_HM_CREDENCIAIS`, ver `docs/bb-homologacao.md`),
+que nunca entra no repo. Banrisul, BTG, C6, Inter, Itau, Santander, Sicredi e Efi exigem
+cadastro de aplicacao ou conta (o sandbox responde 401/403 sem credencial) e ficam para quando
+houver credencial. O sandbox do Sicoob valida a requisicao contra o swagger, mas responde
 exemplos fixos (boleto) ou aleatorios (Pix): prova rota, corpo, cabecalhos e codigos HTTP, nao a
 transicao de estado nem o OAuth/mTLS de producao. Detalhe em `docs/sicoob-duvidas.md` e
 `docs/pix-duvidas.md`.
