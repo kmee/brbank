@@ -63,11 +63,12 @@ def test_linha_com_tamanho_ou_caractere_invalido(texto):
         normalizar_linha_digitavel(texto)
 
 
-def test_linha_de_arrecadacao_confere_so_o_tamanho():
+def test_linha_de_arrecadacao_confere_os_dvs():
     linha = "8" + "1" * 47
-    assert normalizar_linha_digitavel(linha) == linha
-    barras = codigo_barras_da_linha(linha)
-    assert barras is not None and len(barras) == 44
+    with pytest.raises(ValueError):
+        normalizar_linha_digitavel(linha)
+    assert codigo_barras_da_linha(linha) is None
+    assert normalizar_linha_digitavel(linha, validar_dv=False) == linha
 
 
 def test_codigo_de_barras_da_linha_47():

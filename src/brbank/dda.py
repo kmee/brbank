@@ -28,6 +28,10 @@ from pydantic import BeforeValidator, Field, field_validator
 
 from brbank._compat import StrEnum
 from brbank.erros import NaoSuportado
+from brbank.instrumento import (  # noqa: F401 (continuam importaveis daqui)
+    codigo_barras_da_linha,
+    normalizar_linha_digitavel,
+)
 from brbank.modelos import Valor, _mascarar_bruta, _Modelo
 
 _CENTAVO = Decimal("0.01")
@@ -57,70 +61,6 @@ class TipoEventoDda(StrEnum):
     DEBITO_PAGO = "DEBITO_PAGO"
     DDA_ATIVADO = "DDA_ATIVADO"
     DDA_DESATIVADO = "DDA_DESATIVADO"
-
-
-# --- linha digitavel -------------------------------------------------------
-
-
-def _dv_mod10(campo: str) -> int:
-    soma = 0
-    for posicao, digito in enumerate(reversed(campo)):
-        produto = int(digito) * (2 if posicao % 2 == 0 else 1)
-        soma += produto - 9 if produto > 9 else produto
-    return (10 - soma % 10) % 10
-
-
-def _dv_mod11_barras(base: str) -> int:
-    """DV geral do codigo de barras de boleto bancario (43 digitos, sem o DV)."""
-    soma = sum(int(d) * (2 + i % 8) for i, d in enumerate(reversed(base)))
-    dv = 11 - soma % 11
-    return 1 if dv in (0, 10, 11) else dv
-
-
-def _barras_de_47(linha: str) -> str:
-    return (
-        linha[0:4] + linha[32] + linha[33:47] + linha[4:9] + linha[10:20] + linha[21:31]
-    )
-
-
-def _dvs_da_linha_47_conferem(linha: str) -> bool:
-    for inicio, fim in ((0, 9), (10, 20), (21, 31)):
-        if _dv_mod10(linha[inicio:fim]) != int(linha[fim]):
-            return False
-    barras = _barras_de_47(linha)
-    return _dv_mod11_barras(barras[:4] + barras[5:]) == int(linha[32])
-
-
-def normalizar_linha_digitavel(texto: str, *, validar_dv: bool = True) -> str:
-    """So digitos; confere tamanho (47 ou 48) e, por padrao, os DVs.
-
-    Boleto bancario (47): DV mod 10 dos tres primeiros campos e DV geral (mod 11)
-    do codigo de barras. Arrecadacao (48): so o tamanho.
-
-    :raises ValueError: se nao for uma linha digitavel valida.
-    """
-    if not isinstance(texto, str):
-        raise ValueError("linha digitavel deve ser texto")
-    digitos = re.sub(r"[\s.\-]", "", texto)
-    if not digitos.isdigit() or len(digitos) not in (47, 48):
-        raise ValueError("linha digitavel deve ter 47 ou 48 digitos")
-    if validar_dv and len(digitos) == 47 and not _dvs_da_linha_47_conferem(digitos):
-        raise ValueError("linha digitavel com digito verificador invalido")
-    return digitos
-
-
-def codigo_barras_da_linha(linha: str) -> str | None:
-    """Codigo de barras (44 digitos) de uma linha digitavel que confere os DVs.
-
-    Devolve None se a linha nao for valida: nunca inventa um codigo de barras.
-    """
-    try:
-        digitos = normalizar_linha_digitavel(linha)
-    except ValueError:
-        return None
-    if len(digitos) == 47:
-        return _barras_de_47(digitos)
-    return "".join(digitos[i : i + 11] for i in range(0, 48, 12))
 
 
 # --- modelos -----------------------------------------------------------------
