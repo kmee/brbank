@@ -61,8 +61,30 @@ e um entry point em `brbank.adapters`.
 `CapacidadePagamento`): pagamento so em lote (`LotePagamento` de um tipo: boleto, guia, Pix ou
 transferencia), aceite e estado por linha, `reservar_numero_lote` antes do envio (o chamador
 grava o numero e resolve um timeout consultando, nunca reenviando), `liberar_lote`,
-`consultar_lote`, `consultar_pagamento` e `cancelar_pagamentos`. Primeiro adapter:
-`brbank.adapters.bb_pagamento` (Pagamentos em Lote do BB, validado na homologacao).
+`consultar_lote`, `consultar_pagamento` e `cancelar_pagamentos`. Os adapters de pagamento ficam
+no entry point `brbank.adapters_pagamento` (`listar_adapters_pagamento`,
+`obter_classe_pagamento`): o Odoo descobre o que cada banco suporta pelas
+`capacidades_pagamento` da classe, sem instanciar.
+
+**Pix copia e cola** (`TipoPagamento.PIX_QRCODE`, capacidade `PIX_QRCODE`): o `Pagamento` leva o
+BR Code inteiro em `brcode` (conferido por `ler_brcode`; o valor tem de bater com o do QR
+estatico que tem valor) e `pagar_com_juros_multa` para QR de cobranca com vencimento. O banco do
+pagador le e valida o QR (e o JWS do dinamico); a biblioteca so manda o texto.
+
+**Lote local** (capacidade `LOTE_LOCAL`): banco que paga um por vez tambem implementa
+`pagar_lote`, mas envia linha a linha; o numero do lote e local, `consultar_lote` nao existe e cada
+linha se acompanha por `consultar_pagamento` ou webhook. Linha sem resposta no envio de um
+pagamento que executa na hora volta `INDETERMINADO` (pode ter sido pago: conferir antes de
+reenviar) e as seguintes nao saem (`RECUSADO`, motivo `NAO_ENVIADO`). As chamadas que movem
+dinheiro sem chave de idempotencia no banco saem sem retry automatico.
+
+| Banco | Adapter (`brbank.adapters_pagamento`) | Tipos | Lote | Validacao |
+| --- | --- | --- | --- | --- |
+| Banco do Brasil | `bb` (`bb_pagamento`, Pagamentos em Lote v1) | boleto, guia, Pix (chave e conta), transferencia | do banco, com liberacao | homologacao (2026-10-28) |
+| Sicoob | `sicoob` (`sicoob_pagamento`, Pagamentos Pix v2) | Pix copia e cola, Pix por chave e por conta | local | sandbox parcial: o QR nao executa no sandbox (`docs/sicoob-pagamento-duvidas.md`) |
+| Inter | `inter` (`inter_pagamento`, Banking v2) | Pix copia e cola, Pix por chave e por conta, boleto, guia | local | so servidor falso (`docs/inter-pagamento-duvidas.md`) |
+
+O BB nao tem pagamento por QR na API de lote (so chave e conta).
 
 `brbank.extrato` define `AdapterExtrato`: `listar_lancamentos(conta, desde, ate, cursor)`
 paginado, lancamentos (`LancamentoExtrato`, valor positivo com sinal C/D) separados das linhas
@@ -77,8 +99,9 @@ Como validar contra o BB: `docs/bb-homologacao.md`.
 da guia de arrecadacao (48 digitos, modulo 10 ou 11 pelo identificador de valor),
 `codigo_barras_da_linha` e `linha_digitavel_do_codigo` convertem um no outro, `tipo_codigo` diz se
 e boleto ou guia, e `ler_brcode` le o Pix copia e cola (confere o CRC16 e devolve chave, URL do QR
-dinamico, valor, nome e cidade do recebedor e txid). Codigo que nao confere levanta `ValueError`;
-nada e inventado.
+dinamico, valor, nome e cidade do recebedor e txid), e `vencimento_do_boleto` tira o vencimento
+do fator do codigo de barras (com o reinicio do fator em 22/02/2025). Codigo que nao confere
+levanta `ValueError`; nada e inventado.
 
 ## DDA (boletos a pagar)
 
@@ -103,7 +126,9 @@ O simulador da API do BTG, para testes e e2e (so stdlib):
 de rodar o ciclo contra o ambiente real do banco. Hoje: `sicoob` e o perfil Pix `sicoob`
 (2026-10-20), o `bb`, o perfil Pix `bb` e o `bb_pagamento` (2026-10-28, homologacao do BB com
 credencial de aplicacao "Em teste", em `tests/integracao/test_bb_homologacao.py`). Os outros seguem `False`: Inter e PinBank herdam a logica de modulos Odoo em
-producao, mas o adapter da biblioteca ainda nao rodou contra o banco.
+producao, mas o adapter da biblioteca ainda nao rodou contra o banco. O `sicoob_pagamento`
+rodou contra o sandbox em 2026-10-29 (Pix por chave, por conta, consulta e webhook), mas segue
+`False` porque a rota do QR no sandbox devolve sempre o exemplo de erro.
 
 Os testes contra sandbox ficam em `tests/integracao/`, marcados `sandbox`, fora da execucao padrao
 e pulados sem credencial. A credencial vem so de variavel de ambiente, nunca do repo:

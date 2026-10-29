@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brbank"
-version = "0.0.9"
+version = "0.0.10"
 description = "Cobranca bancaria unificada (boleto e Pix) para bancos brasileiros, independente do Odoo"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,6 +49,11 @@ sicoob = "brbank.adapters.sicoob:SicoobAdapter"
 sicredi = "brbank.adapters.sicredi:SicrediAdapter"
 unicred = "brbank.adapters.unicred:UnicredAdapter"
 pix_bacen = "brbank.adapters.pix_bacen:PixBacenAdapter"
+
+[project.entry-points."brbank.adapters_pagamento"]
+bb = "brbank.adapters.bb_pagamento:BancoDoBrasilPagamentoAdapter"
+inter = "brbank.adapters.inter_pagamento:InterPagamentoAdapter"
+sicoob = "brbank.adapters.sicoob_pagamento:SicoobPagamentoAdapter"
 
 [dependency-groups]
 dev = [

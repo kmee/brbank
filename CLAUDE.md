@@ -15,7 +15,8 @@ uv run ruff check .              # lint
   `transporte` (B5), `auth` (B6), `envelope` (B7), `erros` (B8), `status` (B9),
   `orquestrador` (B10), `mascara` (LGPD), `documento` (CPF/CNPJ).
 - `src/brbank/adapters/<banco>.py`: um adapter por banco, registrado em
-  `[project.entry-points."brbank.adapters"]`.
+  `[project.entry-points."brbank.adapters"]`; os de pagamento (`<banco>_pagamento.py`,
+  `AdapterPagamento`) em `"brbank.adapters_pagamento"`.
 - `tests/test_contrato.py`: suite comum registrar -> consultar -> baixar; adapter
   novo entra em `FABRICAS` com um servidor falso.
 

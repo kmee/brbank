@@ -6,7 +6,7 @@ import pytest
 from brbank import Duplicado, Indisponivel, Validacao
 from brbank.auth import OAuth2ClientCredentials
 from brbank.envelope import Envelope
-from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte
+from brbank.transporte import SEM_RETRY, LimitadorTaxa, PoliticaRetry, Transporte
 
 
 def transporte(tratar, dormir, **kw):
@@ -145,3 +145,19 @@ async def test_envelope_cifra_e_decifra(dormir):
     resp = await t.requisitar("POST", "/a", operacao="op", json={"a": 1})
     assert vistos == [b'{"a": 1}'[::-1]]
     assert resp.json() == {"b": 2}
+
+
+async def test_retry_trocado_so_na_chamada(dormir):
+    chamadas = []
+
+    def tratar(request):
+        chamadas.append(1)
+        return httpx.Response(503, json={})
+
+    t = transporte(tratar, dormir)
+    with pytest.raises(Indisponivel):
+        await t.requisitar("POST", "/pagar", operacao="op", retry=SEM_RETRY)
+    assert len(chamadas) == 1
+    with pytest.raises(Indisponivel):
+        await t.requisitar("GET", "/consultar", operacao="op")
+    assert len(chamadas) == 1 + PoliticaRetry().tentativas

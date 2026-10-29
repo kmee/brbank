@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from brbank._compat import StrEnum
@@ -154,6 +155,32 @@ def normalizar_codigo_barras(texto: str) -> str:
         else _codigo_boleto_confere(digitos)
     )
     return digitos if confere else _falha_dv()
+
+
+_BASE_FATOR = date(1997, 10, 7)
+# FEBRABAN: o fator chegou a 9999 em 21/02/2025 e voltou a 1000 no dia seguinte.
+_BASE_FATOR_2025 = date(2025, 2, 22)
+
+
+def vencimento_do_boleto(codigo: str, *, hoje: date | None = None) -> date | None:
+    """Vencimento pelo fator (posicoes 6 a 9) do codigo de barras ou da linha.
+
+    O fator repete a cada 9000 dias (reinicio de 2025): vale a data mais perto de
+    `hoje`. Fator 0000 (sem vencimento) e guia de arrecadacao devolvem None.
+
+    :raises ValueError: se o codigo nao conferir.
+    """
+    codigo = normalizar_codigo_barras(codigo)
+    if codigo[0] == "8":
+        return None
+    fator = int(codigo[5:9])
+    if fator == 0:
+        return None
+    referencia = hoje or date.today()
+    candidatas = [_BASE_FATOR + timedelta(days=fator)]
+    if fator >= 1000:
+        candidatas.append(_BASE_FATOR_2025 + timedelta(days=fator - 1000))
+    return min(candidatas, key=lambda d: abs((d - referencia).days))
 
 
 def _falha_dv():

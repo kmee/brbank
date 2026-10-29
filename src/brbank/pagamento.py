@@ -14,6 +14,15 @@ Execucao duravel: o numero do lote pode ser reservado antes do envio
 (`reservar_numero_lote`), para que o chamador o grave antes de chamar o banco;
 um timeout no envio e resultado desconhecido e se resolve consultando o lote por
 esse numero, nunca reenviando.
+
+Lote local (`CapacidadePagamento.LOTE_LOCAL`): bancos cuja API paga um por vez
+(Pix copia e cola do Sicoob, por exemplo) tambem implementam `pagar_lote`, mas o
+lote so existe do lado de ca. O adapter envia linha a linha, o numero do lote e
+gerado localmente, nao ha `consultar_lote` nem liberacao, e o estado de cada
+linha se acompanha por `consultar_pagamento` (ou webhook). Se uma linha fica sem
+resposta (timeout no envio de um pagamento que executa na hora), ela volta
+`INDETERMINADO` e as seguintes nao sao enviadas (`RECUSADO`, motivo
+`NAO_ENVIADO`): o chamador confere antes de reenviar.
 """
 
 import re
@@ -28,6 +37,7 @@ from pydantic import BeforeValidator, Field, field_validator, model_validator
 
 from brbank._compat import StrEnum
 from brbank.erros import NaoSuportado
+from brbank.instrumento import ler_brcode
 from brbank.modelos import Valor, _mascarar_bruta, _Modelo
 
 _CENTAVO = Decimal("0.01")
@@ -43,6 +53,10 @@ class CapacidadePagamento(Flag):
     LIBERACAO = auto()
     CANCELAMENTO = auto()
     WEBHOOK = auto()
+    # Pix copia e cola (BR Code, QR estatico ou dinamico).
+    PIX_QRCODE = auto()
+    # O banco paga um por vez: lote local, sem consultar_lote (ver docstring).
+    LOTE_LOCAL = auto()
 
 
 class TipoPagamento(StrEnum):
@@ -51,6 +65,8 @@ class TipoPagamento(StrEnum):
     GUIA = "GUIA"
     PIX = "PIX"
     TRANSFERENCIA = "TRANSFERENCIA"
+    # Pix copia e cola: o BR Code vai inteiro ao banco, que le e valida o QR.
+    PIX_QRCODE = "PIX_QRCODE"
 
 
 class StatusPagamento(StrEnum):
@@ -63,6 +79,9 @@ class StatusPagamento(StrEnum):
     REJEITADO = "REJEITADO"
     CANCELADO = "CANCELADO"
     DEVOLVIDO = "DEVOLVIDO"
+    # Sem resposta no envio de um pagamento que executa na hora: pode ter sido
+    # pago. Conferir (consulta, extrato ou webhook) antes de reenviar.
+    INDETERMINADO = "INDETERMINADO"
 
 
 class StatusLote(StrEnum):
@@ -110,6 +129,8 @@ class DestinoPix(_Modelo):
     chave: str | None = Field(default=None, repr=False)
     conta: ContaBancaria | None = None
     documento: Documento | None = Field(default=None, repr=False)
+    # Nome do favorecido: o Inter o exige no Pix por dados bancarios.
+    nome: str | None = Field(default=None, max_length=140, repr=False)
 
     @model_validator(mode="after")
     def _chave_ou_conta(self) -> "DestinoPix":
@@ -137,16 +158,30 @@ class Pagamento(_Modelo):
     desconto: Valor | None = Field(default=None, ge=0)
     juros_multa: Valor | None = Field(default=None, ge=0)
     nosso_numero: str | None = Field(default=None, repr=False)
+    # Vencimento do titulo (boleto, guia, QR de cobranca com vencimento). Opcional:
+    # o Inter o exige no boleto (sem ele, sai do fator de vencimento do codigo).
+    vencimento: date | None = None
     # PIX
     pix: DestinoPix | None = None
     # TRANSFERENCIA
     conta_credito: ContaBancaria | None = None
     favorecido_documento: Documento | None = Field(default=None, repr=False)
+    # PIX_QRCODE: o Pix copia e cola inteiro. `valor` e o valor original (confere
+    # com o do QR quando ele traz valor); com `pagar_com_juros_multa` o banco
+    # soma os encargos do QR de cobranca com vencimento ate a data do pagamento.
+    brcode: str | None = Field(default=None, repr=False)
+    pagar_com_juros_multa: bool = False
 
     @field_validator("valor", "valor_nominal", "desconto", "juros_multa")
     @classmethod
     def _centavos(cls, v: Decimal | None) -> Decimal | None:
         return None if v is None else v.quantize(_CENTAVO, rounding=ROUND_HALF_UP)
+
+    @field_validator("brcode")
+    @classmethod
+    def _brcode_confere(cls, v: str | None) -> str | None:
+        # Confere CRC e formato; ValueError vira ValidationError.
+        return None if v is None else ler_brcode(v).payload
 
     @model_validator(mode="after")
     def _campos_do_tipo(self) -> "Pagamento":
@@ -165,6 +200,14 @@ class Pagamento(_Modelo):
             self.conta_credito is None or not self.favorecido_documento
         ):
             raise ValueError("transferencia exige conta_credito e favorecido_documento")
+        if (self.brcode is not None) != (t is TipoPagamento.PIX_QRCODE):
+            raise ValueError("brcode vai so no pagamento PIX_QRCODE, e ele o exige")
+        if self.brcode is not None:
+            lido = ler_brcode(self.brcode)
+            # QR estatico com valor: o valor e fixo. No dinamico vale o do JSON
+            # assinado no PSP do recebedor, que so o banco pagador le e valida.
+            if not lido.dinamico and lido.valor not in (None, self.valor):
+                raise ValueError("valor diferente do valor fixo do QR estatico")
         return self
 
 
@@ -220,6 +263,26 @@ class LoteRegistrado(_Modelo):
         return tuple(
             p for p in self.pagamentos if p.status is not StatusPagamento.RECUSADO
         )
+
+
+def status_lote_local(pagamentos: tuple[PagamentoRegistrado, ...]) -> StatusLote:
+    """Estado de um lote local (LOTE_LOCAL) a partir do estado das linhas."""
+    if not pagamentos:
+        raise ValueError("lote sem linhas")
+    recusados = sum(p.status is StatusPagamento.RECUSADO for p in pagamentos)
+    if recusados == len(pagamentos):
+        return StatusLote.RECUSADO
+    if recusados:
+        return StatusLote.ACEITO_PARCIAL
+    finais = (
+        StatusPagamento.PAGO,
+        StatusPagamento.REJEITADO,
+        StatusPagamento.CANCELADO,
+        StatusPagamento.DEVOLVIDO,
+    )
+    if all(p.status in finais for p in pagamentos):
+        return StatusLote.PROCESSADO
+    return StatusLote.EM_PROCESSAMENTO
 
 
 # --- contrato ---------------------------------------------------------------

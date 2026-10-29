@@ -81,6 +81,10 @@ _CHAVES_SENSIVEIS = frozenset(
         "asaasaccesstoken",
         "payload",
         "encodedimage",
+        # Pagamento de Pix copia e cola (Sicoob, Inter).
+        "qrcode",
+        "brcode",
+        "chavedict",
     }
 )
 
