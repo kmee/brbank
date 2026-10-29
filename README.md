@@ -70,6 +70,16 @@ de saldo. No Odoo o consumidor e um provider do `account_statement_import_online
 Primeiro adapter: `brbank.adapters.bb_extrato` (Extratos v2 do BB, mTLS, ainda sem validacao).
 Como validar contra o BB: `docs/bb-homologacao.md`.
 
+## Boleto, guia e Pix copia e cola
+
+`brbank.instrumento` tem funcoes puras, sem rede, para o instrumento de um pagamento:
+`normalizar_linha_digitavel` e `normalizar_codigo_barras` conferem os DVs do boleto (47 digitos) e
+da guia de arrecadacao (48 digitos, modulo 10 ou 11 pelo identificador de valor),
+`codigo_barras_da_linha` e `linha_digitavel_do_codigo` convertem um no outro, `tipo_codigo` diz se
+e boleto ou guia, e `ler_brcode` le o Pix copia e cola (confere o CRC16 e devolve chave, URL do QR
+dinamico, valor, nome e cidade do recebedor e txid). Codigo que nao confere levanta `ValueError`;
+nada e inventado.
+
 ## DDA (boletos a pagar)
 
 O lado de pagar: `brbank.dda` define o contrato opcional `AdapterDda` (capacidades `CapacidadeDda`:

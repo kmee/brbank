@@ -31,6 +31,15 @@ from brbank.extrato import (
     Sinal,
     TipoSaldo,
 )
+from brbank.instrumento import (
+    BrCode,
+    TipoCodigo,
+    codigo_barras_da_linha,
+    ler_brcode,
+    linha_digitavel_do_codigo,
+    normalizar_codigo_barras,
+    tipo_codigo,
+)
 from brbank.modelos import (
     Encargos,
     Endereco,
@@ -83,6 +92,7 @@ __all__ = [
     "Assinatura",
     "AssinaturaRegistrada",
     "BankAdapter",
+    "BrCode",
     "Capacidade",
     "CapacidadeDda",
     "CapacidadeExtrato",
@@ -124,6 +134,7 @@ __all__ = [
     "StatusPagamento",
     "TabelaStatus",
     "TipoChavePix",
+    "TipoCodigo",
     "TipoEventoDda",
     "TipoEventoRecorrencia",
     "TipoInstrucao",
@@ -133,8 +144,13 @@ __all__ = [
     "TituloRegistrado",
     "TokenPersistido",
     "Validacao",
+    "codigo_barras_da_linha",
     "criar_adapter",
+    "ler_brcode",
+    "linha_digitavel_do_codigo",
     "listar_adapters",
+    "normalizar_codigo_barras",
     "normalizar_linha_digitavel",
     "obter_classe",
+    "tipo_codigo",
 ]

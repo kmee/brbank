@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 
-from brbank.dda import _dv_mod10, _dv_mod11_barras
+from brbank.instrumento import _dv_mod10, _dv_mod11_barras
 
 # CNPJ da empresa pagadora fictícia (o mesmo dos testes da biblioteca).
 CNPJ_DEMO = "91300766000147"
