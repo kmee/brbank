@@ -382,8 +382,6 @@ def _erro_do_envelope(dados: dict[str, Any]) -> ErroBrbank | None:
 
 class BradescoPagamentoAdapter(AdapterPagamento):
     banco: ClassVar[str] = "bradesco"
-    # TRANSFERENCIA depende de `Pagamento.favorecido_nome`: o TED exige o nome do
-    # destinatario e o modelo ainda nao tem onde levar (ver o doc de duvidas).
     capacidades_pagamento: ClassVar[CapacidadePagamento] = (
         CapacidadePagamento.PIX
         | CapacidadePagamento.BOLETO
@@ -391,11 +389,7 @@ class BradescoPagamentoAdapter(AdapterPagamento):
         | CapacidadePagamento.RESERVA_NUMERO
         | CapacidadePagamento.LOTE_LOCAL
         | CapacidadePagamento.CANCELAMENTO
-        | (
-            CapacidadePagamento.TRANSFERENCIA
-            if "favorecido_nome" in Pagamento.model_fields
-            else CapacidadePagamento.NENHUMA
-        )
+        | CapacidadePagamento.TRANSFERENCIA
     )
     validado_sandbox: ClassVar[bool] = False
 
@@ -895,9 +889,11 @@ class BradescoPagamentoAdapter(AdapterPagamento):
         assert destino is not None
         cfg = self._config
         self._so_hoje(p, "TED")
-        nome = getattr(p, "favorecido_nome", None)
+        nome = p.favorecido_nome
         if not nome:
             raise Validacao("bradesco: TED exige o nome do favorecido")
+        if len(nome) > 80:
+            raise Validacao("bradesco: nome do favorecido tem ate 80 caracteres")
         if not destino.compe:
             raise Validacao("bradesco: TED exige o COMPE do banco de destino")
         if int(destino.compe) == BANCO_BRADESCO:

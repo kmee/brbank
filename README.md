@@ -83,6 +83,9 @@ dinheiro sem chave de idempotencia no banco saem sem retry automatico.
 | Banco do Brasil | `bb` (`bb_pagamento`, Pagamentos em Lote v1) | boleto, guia, Pix (chave e conta), transferencia | do banco, com liberacao | homologacao (2026-10-28) |
 | Sicoob | `sicoob` (`sicoob_pagamento`, Pagamentos Pix v2) | Pix copia e cola, Pix por chave e por conta | local | sandbox parcial: o QR nao executa no sandbox (`docs/sicoob-pagamento-duvidas.md`) |
 | Inter | `inter` (`inter_pagamento`, Banking v2) | Pix copia e cola, Pix por chave e por conta, boleto, guia | local | so servidor falso (`docs/inter-pagamento-duvidas.md`) |
+| Santander | `santander` (`santander_pagamento`, Payment Hub 1.1.7) | boleto, guia, Pix copia e cola, Pix por chave e por conta, transferencia | local, com autorizacao por `autorizar_lote` | so servidor falso, contrato oficial (`docs/santander-pagamento-duvidas.md`) |
+| Itau | `itau` (`itau_pagamento`, SISPAG v1) | Pix copia e cola, Pix por chave e por conta | local | so servidor falso, contrato de terceiros: a especificacao exige login (`docs/itau-pagamento-duvidas.md`) |
+| Bradesco | `bradesco` (`bradesco_pagamento`, APIs do portal Developers) | Pix por chave e por conta, boleto, guia, transferencia | local, paga na hora, sem liberacao | so servidor falso, contrato oficial (`docs/bradesco-pagamento-duvidas.md`) |
 
 O BB nao tem pagamento por QR na API de lote (so chave e conta).
 

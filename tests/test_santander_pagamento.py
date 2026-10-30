@@ -44,7 +44,6 @@ def config(**extra) -> SantanderPagamentoConfig:
         "pagador_documento": "91.300.766/0001-47",
         "pagador_nome": "KMEE Ltda",
         "ambiente": "sandbox",
-        "nome_favorecido_ted": lambda _p: "FAVORECIDO TESTE",
     }
     base.update(extra)
     return SantanderPagamentoConfig(**base)
@@ -123,6 +122,7 @@ def ted(chave="t1", conta=CREDITO, valor="100.99", **extra):
         "data": HOJE,
         "conta_credito": conta,
         "favorecido_documento": CNPJ_BENEF,
+        "favorecido_nome": "FAVORECIDO TESTE",
     }
     return Pagamento(**{**campos, **extra})
 
@@ -445,9 +445,9 @@ async def test_ted_conta_de_pagamento_leva_ispb(adapter, falso):
 
 
 async def test_ted_sem_nome_nem_compe_nao_vai_ao_banco(falso, dormir):
-    adapter = novo(falso, dormir, nome_favorecido_ted=None)
-    enviado = await adapter.pagar_lote(lote(ted()))
-    assert "nome_favorecido_ted" in enviado.pagamentos[0].motivos[0]
+    adapter = novo(falso, dormir)
+    enviado = await adapter.pagar_lote(lote(ted(favorecido_nome=None)))
+    assert "nome do favorecido" in enviado.pagamentos[0].motivos[0]
     adapter = novo(falso, dormir)
     sem_compe = ContaBancaria(agencia="1", conta="1", digito="1", ispb="60701190")
     enviado = await adapter.pagar_lote(lote(ted(conta=sem_compe)))

@@ -61,19 +61,6 @@ def config(**extra) -> BradescoPagamentoConfig:
     return BradescoPagamentoConfig(**base)
 
 
-class PagamentoTed(Pagamento):
-    """O contrato ainda nao tem o nome do favorecido, que o TED exige."""
-
-    favorecido_nome: str | None = None
-
-
-class AdapterComTed(BradescoPagamentoAdapter):
-    capacidades_pagamento = (
-        BradescoPagamentoAdapter.capacidades_pagamento
-        | CapacidadePagamento.TRANSFERENCIA
-    )
-
-
 @pytest.fixture
 def falso():
     return BradescoPagamentoFalso()
@@ -92,7 +79,7 @@ def adapter(falso, dormir):
 
 @pytest.fixture
 def adapter_ted(falso, dormir):
-    return _montar(falso, dormir, classe=AdapterComTed)
+    return _montar(falso, dormir)
 
 
 def pagamento(tipo, chave="x1", valor="15.00", **extra):
@@ -142,7 +129,7 @@ def ted(chave="t1", **extra):
         "favorecido_documento": CNPJ_FAVORECIDO,
         "favorecido_nome": "Fornecedor Ficticio",
     }
-    return PagamentoTed(**{**campos, **extra})
+    return Pagamento(**{**campos, **extra})
 
 
 def lote(*pagamentos, conta=DEBITO):
@@ -172,12 +159,6 @@ def test_contrato():
     for cap in ("LIBERACAO", "PIX_QRCODE", "WEBHOOK"):
         assert CapacidadePagamento[cap] not in caps
     assert BradescoPagamentoAdapter.validado_sandbox is False
-
-
-def test_transferencia_so_com_o_nome_no_contrato():
-    tem_campo = "favorecido_nome" in Pagamento.model_fields
-    caps = BradescoPagamentoAdapter.capacidades_pagamento
-    assert (CapacidadePagamento.TRANSFERENCIA in caps) is tem_campo
 
 
 def test_config_sem_segredo_no_repr():
@@ -223,13 +204,6 @@ async def test_pix_copia_e_cola_nao_declarado(adapter):
                 )
             )
         )
-
-
-async def test_transferencia_sem_capacidade(adapter):
-    if "favorecido_nome" in Pagamento.model_fields:
-        pytest.skip("o contrato ja tem o campo")
-    with pytest.raises(NaoSuportado):
-        await adapter.pagar_lote(lote(ted()))
 
 
 async def test_lote_e_local(adapter):
@@ -931,7 +905,7 @@ async def test_ted(adapter_ted, falso):
 
 
 async def test_ted_mesma_titularidade_e_cpf(falso, dormir):
-    adapter = _montar(falso, dormir, classe=AdapterComTed)
+    adapter = _montar(falso, dormir, classe=BradescoPagamentoAdapter)
     await adapter.pagar_lote(lote(ted(favorecido_documento=CNPJ_PAGADOR)))
     assert falso.de_rota(ROTA_TED)[0]["tipoDeDoc"] == "D"
     await adapter.pagar_lote(lote(ted("t2", favorecido_documento="52998224725")))
@@ -946,6 +920,7 @@ async def test_ted_mesma_titularidade_e_cpf(falso, dormir):
     ("campos", "motivo"),
     [
         ({"favorecido_nome": None}, "nome"),
+        ({"favorecido_nome": "x" * 81}, "80"),
         ({"data": AMANHA}, "nao agenda"),
         (
             {"conta_credito": ContaBancaria(agencia="1", conta="2", digito="3")},

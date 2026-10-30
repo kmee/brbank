@@ -154,16 +154,3 @@ producao para pagamento em lote com alcada no banco. Quem responde: suporte do p
 5. O nome de `nomeClienteRemetente` e obrigatorio? A tabela diz sim; o exemplo e a collection nao mandam.
 6. Formato do `numeroCtrlCip` quando vem "0" na pre-efetivacao de titulo Bradesco.
 7. Consulta da guia: o `regSaida` vazio e a forma de "nao achei" ou vem erro? O adapter trata os dois.
-
-## Mudanca pedida em arquivo compartilhado
-
-O TED exige o nome do destinatario e o contrato so tem `DestinoPix.nome`. Em `src/brbank/pagamento.py`,
-depois de `favorecido_documento`:
-
-```python
-    # Nome do favorecido: o Bradesco o exige no TED.
-    favorecido_nome: str | None = Field(default=None, max_length=80, repr=False)
-```
-
-Sem esse campo, `TRANSFERENCIA` fica fora de `capacidades_pagamento` (a classe olha o modelo) e o codigo
-de TED so roda nos testes, por subclasse.

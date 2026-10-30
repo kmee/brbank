@@ -202,9 +202,6 @@ class SantanderPagamentoConfig:
     ted_tipo_destino: str = "STR0008"
     ted_finalidade: str = "PAGAMENTO_DE_FORNECEDORES"
     # A TED exige o nome do favorecido, que o modelo `Pagamento` nao tem.
-    nome_favorecido_ted: Callable[[Pagamento], str] | None = field(
-        default=None, repr=False
-    )
     requisicoes_por_segundo: float | None = None
 
     def __post_init__(self) -> None:
@@ -485,8 +482,8 @@ class SantanderPagamentoAdapter(AdapterPagamento):
     def _destino_ted(self, p: Pagamento) -> dict[str, str]:
         conta = p.conta_credito
         assert conta is not None and p.favorecido_documento
-        if not self._config.nome_favorecido_ted:
-            raise Validacao("TED exige nome_favorecido_ted na config do Santander")
+        if not p.favorecido_nome:
+            raise Validacao("santander: TED exige o nome do favorecido")
         if not conta.compe:
             raise Validacao("santander: TED exige o codigo COMPE do banco de destino")
         if len(conta.agencia) > 4:
@@ -499,7 +496,7 @@ class SantanderPagamentoAdapter(AdapterPagamento):
             "typeAccount": tipo,
             "legalEntityIdentifier": _tipo_documento(p.favorecido_documento),
             "documentIdentifierNumber": p.favorecido_documento,
-            "name": self._config.nome_favorecido_ted(p),
+            "name": p.favorecido_nome,
             "purpose": self._config.ted_finalidade,
         }
         # ISPB so em conta de pagamento: o banco recusa em CC e PP (20062).

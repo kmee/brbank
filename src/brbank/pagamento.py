@@ -166,6 +166,8 @@ class Pagamento(_Modelo):
     # TRANSFERENCIA
     conta_credito: ContaBancaria | None = None
     favorecido_documento: Documento | None = Field(default=None, repr=False)
+    # Nome do favorecido: Santander e Bradesco o exigem no TED.
+    favorecido_nome: str | None = Field(default=None, max_length=140, repr=False)
     # PIX_QRCODE: o Pix copia e cola inteiro. `valor` e o valor original (confere
     # com o do QR quando ele traz valor); com `pagar_com_juros_multa` o banco
     # soma os encargos do QR de cobranca com vencimento ate a data do pagamento.

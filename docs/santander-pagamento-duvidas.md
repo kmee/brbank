@@ -116,8 +116,8 @@ JSON de `https://cross.api.santander.com.br/publicly_accessible_content/v2/publi
    pagar nada.
 6. **Conta de pagamento:** o modelo nao tem esse tipo. Na TED, `conta_credito` com `ispb` e `compe`
    vira `PG`. Pix por dados bancarios sai como corrente ou poupanca; `CONTA_PAGAMENTO` nao e enviado.
-7. **Nome do favorecido na TED:** obrigatorio no banco, e `Pagamento` nao tem o campo. Por enquanto vem
-   de `nome_favorecido_ted` na config; sem ele a linha e recusada sem chamar o banco.
+7. **Nome do favorecido na TED:** obrigatorio no banco, vem de `Pagamento.favorecido_nome`; sem ele a
+   linha e recusada sem chamar o banco.
 8. **`PENDING_VALIDATION` e `STARTED`:** aparecem nos filtros e nas tabelas de erro, nao no guia de
    status. Mapeados para `EM_PROCESSAMENTO`; `autorizar_lote` so autoriza `ACEITO`, entao um POST
    nesse estado pede `consultar_pagamento` antes.
@@ -131,6 +131,5 @@ JSON de `https://cross.api.santander.com.br/publicly_accessible_content/v2/publi
 
 ## Mudanca sugerida no contrato (fora deste PR)
 
-- `Pagamento.favorecido_nome` (TED): tira `nome_favorecido_ted` da config.
 - `liberar_lote` receber o `LoteRegistrado` e devolver o estado por linha: e o que um banco sem lote
   com passo de autorizacao precisa. Enquanto isso, `autorizar_lote` existe so neste adapter.
