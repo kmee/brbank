@@ -1,7 +1,7 @@
 """Servidor falso do Itau (cobranca, consulta e Bolecode) sobre httpx.MockTransport.
 
-Formato inferido do ACBr e de relatos do forum (docs/itau-duvidas.md); nao e
-captura do ambiente real.
+Formato inferido do ACBr, de outros clientes publicos e de relatos de forum
+(docs/itau-duvidas.md); nao e captura do ambiente real.
 """
 
 import json
@@ -23,6 +23,10 @@ class ItauFalso:
         self.ultimo_corpo: dict = {}
         self.ultimo_form: dict[str, list[str]] = {}
         self.ultima_query: dict[str, str] = {}
+        # Proxima emissao de Bolecode responde 202, sem titulo no corpo.
+        self.bolecode_em_andamento = False
+        # client_id que pediu cada token, na ordem.
+        self.clientes_token: list[str] = []
 
     def cliente(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.tratar))
@@ -44,9 +48,10 @@ class ItauFalso:
         self.chamadas.append((request.method, caminho))
         self.hosts.append(request.url.host)
         self.ultimo_cabecalho = dict(request.headers)
-        if caminho.endswith(("/oauth/token", "/api/jwt")):
+        if caminho.endswith(("/oauth/token", "/oauth/jwt")):
             self.tokens_emitidos += 1
             self.ultimo_form = parse_qs(request.content.decode())
+            self.clientes_token.extend(self.ultimo_form.get("client_id", []))
             return httpx.Response(
                 200,
                 json={"access_token": f"tok-{self.tokens_emitidos}", "expires_in": 300},
@@ -55,6 +60,15 @@ class ItauFalso:
         if request.content:
             self.ultimo_corpo = json.loads(request.content)
         if request.method == "POST" and caminho.endswith("/boletos-pix"):
+            if self.bolecode_em_andamento:
+                self.bolecode_em_andamento = False
+                return httpx.Response(
+                    202,
+                    json={
+                        "codigo": "202",
+                        "mensagem": "Operacao em andamento, consulte em instantes",
+                    },
+                )
             return self._registrar(self.ultimo_corpo, bolecode=True)
         if request.method == "POST" and caminho == PREFIXO_COBRANCA:
             return self._registrar(self.ultimo_corpo["data"], bolecode=False)
