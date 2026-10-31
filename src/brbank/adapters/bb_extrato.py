@@ -43,6 +43,7 @@ from brbank.extrato import (
     TipoSaldo,
 )
 from brbank.pagamento import ContaBancaria
+from brbank.tempo import hoje_brasil
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte, contexto_tls
 
 URL_SANDBOX = "https://extratos.mtls.api.hm.bb.com.br/v2"
@@ -131,7 +132,7 @@ class BancoDoBrasilExtratoAdapter(AdapterExtrato):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
     ) -> None:
         self._config = config
         self._hoje = hoje

@@ -75,6 +75,7 @@ from brbank.pagamento import (
     TipoPagamento,
     status_lote_local,
 )
+from brbank.tempo import hoje_brasil
 from brbank.transporte import (
     SEM_RETRY,
     LimitadorTaxa,
@@ -327,7 +328,7 @@ class SantanderPagamentoAdapter(AdapterPagamento):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
     ) -> None:
         self._config = config
         self._hoje = hoje
