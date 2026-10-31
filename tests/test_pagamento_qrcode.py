@@ -143,3 +143,11 @@ def test_status_lote_local(estados, lote):
 def test_status_lote_local_vazio():
     with pytest.raises(ValueError):
         status_lote_local(())
+
+
+def test_adapters_de_pagamento_registrados():
+    from brbank import listar_adapters_pagamento
+
+    assert {"bb", "bradesco", "inter", "itau", "santander", "sicoob"} <= set(
+        listar_adapters_pagamento()
+    )
