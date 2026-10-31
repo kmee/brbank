@@ -1,23 +1,35 @@
 """Itau (341), API de Cobranca (cash_management v2) e boleto hibrido (Bolecode).
 
-ESTADO: `validado_sandbox = False`. A documentacao oficial do Itau
-(devportal.itau.com.br) so abre com login; o contrato foi montado por leitura,
-como documentacao, do ACBrBoleto (LGPL, nenhum codigo portado) e de relatos do
-forum do ACBr. Nada aqui foi executado contra o Itau. Duvidas e fontes:
+ESTADO: `validado_sandbox = False`. A especificacao de cada API do Itau
+(devportal.itau.com.br) so abre com login. Autenticacao, hosts novos e certificado
+vem das paginas publicas do portal; o resto vem de leitura, como documentacao, do
+ACBrBoleto (LGPL, nenhum codigo portado), de outros clientes publicos e de relatos
+de forum. Nada aqui foi executado contra o Itau. Grau de cada fato e fontes:
 `docs/itau-duvidas.md`.
 
 Pontos do contrato:
 
-- Quatro hosts: emissao sem Pix, alteracao e baixa em `cash_management/v2`;
+- Quatro hosts: emissao sem Pix, alteracao e baixa em `cash_management/v2`
+  (`api.gateway.itau.com.br`, o host novo do comunicado de certificados do Itau);
   consulta em `boletoscash/v2`; emissao hibrida (Bolecode) em `recebimentos-pix/v1`;
   token em `sts.itau.com.br`. Todos configuraveis em `ItauConfig`.
 - OAuth2 `client_credentials` com id e segredo no formulario, sem escopo, mais
-  mTLS. Toda chamada leva `x-itau-apikey` (o client_id) e `x-itau-correlationID`.
+  mTLS. Toda chamada leva `x-itau-apikey` (o client_id), `x-itau-correlationID` e
+  `x-itau-flowID`.
+- O Itau separa a credencial de Pix/Bolecode da de cobranca: `bolecode_client_id` e
+  os demais `bolecode_*` valem so para a emissao do Bolecode. Sem eles, a credencial
+  principal serve para tudo.
 - O beneficiario gera o nosso numero (8 digitos). `id_banco` = nosso numero; a
   URL de alteracao e baixa usa agencia (4) + conta (7) + DAC (1) + carteira (3)
   + nosso numero (8).
 - Na emissao, valores vao como texto de 17 digitos em centavos e percentuais como
   texto de 12 digitos com 5 casas; na alteracao, como decimal em texto ("2.50").
+- O Bolecode novo usa `data_multa` e `data_juros` no lugar de `quantidade_dias_*`, e
+  nao leva os campos de pagamento parcial nem `desconto_expresso`.
+- O Bolecode pode responder 202 ("Operacao em andamento"): o titulo fica
+  PENDENTE_REGISTRO e a consulta resolve.
+- Protesto e negativacao exigem dias, que a `Instrucao` canonica nao tem: o protesto
+  usa `dias_protesto` da config.
 """
 
 import asyncio
@@ -46,22 +58,23 @@ from brbank.modelos import (
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte, contexto_tls
 
-URL_COBRANCA = "https://api.itau.com.br/cash_management/v2"
+# api.itau.com.br saiu no comunicado de certificados (data limite 18/10/2026):
+# https://devportal.itau.com.br/certificados-apis-expiracao-2026
+URL_COBRANCA = "https://api.gateway.itau.com.br/cash_management/v2"
 URL_COBRANCA_SANDBOX = (
     "https://sandbox.devportal.itau.com.br/itau-ep9-gtw-cash-management-ext-v2/v2"
 )
 URL_CONSULTA = "https://secure.api.cloud.itau.com.br/boletoscash/v2"
 URL_CONSULTA_SANDBOX = URL_COBRANCA_SANDBOX
 # Endpoint novo do Bolecode (o `pix_recebimentos_conciliacoes/v2/boletos_pix` foi
-# descontinuado pelo Itau em 2026). Caminho `boletos-pix` visto so em log de
-# sandbox publicado no forum do ACBr: ver docs/itau-duvidas.md.
+# descontinuado pelo Itau em 2026). Ver docs/itau-duvidas.md.
 URL_BOLECODE = "https://pix-pj.api.itau.com/recebimentos-pix/v1"
 URL_BOLECODE_SANDBOX = (
     "https://sandbox.devportal.itau.com.br/itau-ep9-api-recebimentos-v1-externo/v1"
 )
 CAMINHO_BOLECODE = "boletos-pix"
 URL_TOKEN = "https://sts.itau.com.br/api/oauth/token"
-URL_TOKEN_SANDBOX = "https://devportal.itau.com.br/api/jwt"
+URL_TOKEN_SANDBOX = "https://sandbox.devportal.itau.com.br/api/oauth/jwt"
 
 # situacao_geral_boleto (consulta) e codigo_status (francesinha), segundo o ACBr.
 # Fora de proposito: PAGAMENTO DEVOLVIDO, EA (entrada por acerto), TM e TS
@@ -101,6 +114,8 @@ _TIPO_JUROS_PERCENTUAL_MENSAL = "90"
 _TIPO_DESCONTO_PERCENTUAL_ATE_DATA = "02"
 _DIAS_APOS_VENCIMENTO = 1
 _TAMANHO_NOSSO_NUMERO = 8
+_INSTRUCAO_BAIXAR = "8"
+_TIPO_PROTESTAR = 1
 
 
 def _centavos17(valor: Decimal) -> str:
@@ -156,6 +171,14 @@ class ItauConfig:
     ambiente: str = "producao"
     certificado_pem: bytes | None = field(default=None, repr=False)
     chave_pem: bytes | None = field(default=None, repr=False)
+    # Credencial so da emissao do Bolecode, quando o Itau entregou uma separada da
+    # de cobranca (o normal, ver docs/itau-duvidas.md). None: usa a principal.
+    bolecode_client_id: str | None = None
+    bolecode_client_secret: str | None = field(default=None, repr=False)
+    bolecode_certificado_pem: bytes | None = field(default=None, repr=False)
+    bolecode_chave_pem: bytes | None = field(default=None, repr=False)
+    # Dias para a instrucao de protesto. None: a instrucao e recusada.
+    dias_protesto: int | None = None
     # Nosso numero (ate 8 digitos). Padrao: seu_numero numerico.
     gerar_nosso_numero: Callable[[Titulo], int | str] | None = field(
         default=None, repr=False
@@ -187,6 +210,12 @@ class ItauConfig:
             raise Validacao(f"especie de titulo Itau desconhecida: {self.especie!r}")
         if self.bolecode and not self.chave_pix:
             raise Validacao("Itau: Bolecode exige chave_pix")
+        if bool(self.bolecode_client_id) != bool(self.bolecode_client_secret):
+            raise Validacao(
+                "Itau: bolecode_client_id e bolecode_client_secret vem juntos"
+            )
+        if self.dias_protesto is not None and self.dias_protesto < 1:
+            raise Validacao("Itau: dias_protesto deve ser positivo")
 
     @property
     def sandbox(self) -> bool:
@@ -256,9 +285,13 @@ def _pessoa(pessoa: Pessoa, *, papel: str, exigir_endereco: bool) -> dict[str, A
 class ItauAdapter(BankAdapter):
     banco: ClassVar[str] = "itau"
     validado_sandbox: ClassVar[bool] = False
-    # HIBRIDO so vale com `bolecode=True`: a instancia ajusta em __init__.
+    # HIBRIDO e EMISSAO_ASSINCRONA (o 202 do Bolecode) so valem com `bolecode=True`:
+    # a instancia ajusta em __init__.
     capacidades: ClassVar[Capacidade] = (
-        Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA
+        Capacidade.HIBRIDO
+        | Capacidade.ALTERACAO
+        | Capacidade.BAIXA
+        | Capacidade.EMISSAO_ASSINCRONA
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
 
@@ -277,34 +310,62 @@ class ItauAdapter(BankAdapter):
         self._correlacao = correlacao
         if not config.bolecode:
             self.capacidades = Capacidade.ALTERACAO | Capacidade.BAIXA
-        ssl_context = None
-        if client is None and config.certificado_pem:
-            ssl_context = contexto_tls(config.certificado_pem, config.chave_pem)
-        auth = OAuth2ClientCredentials(
-            conta=config.conta,
-            url_token=config.endereco_token,
-            client_id=config.client_id,
-            client_secret=config.client_secret,
+        limitador = LimitadorTaxa(config.requisicoes_por_segundo, dormir=dormir)
+
+        def transporte(
+            conta: str,
+            client_id: str,
+            client_secret: str,
+            certificado: bytes | None,
+            chave: bytes | None,
+        ) -> Transporte:
+            ssl_context = None
+            if client is None and certificado:
+                ssl_context = contexto_tls(certificado, chave)
+            return Transporte(
+                banco=self.banco,
+                conta=conta,
+                base_url=config.base_cobranca,
+                client=client,
+                ssl_context=ssl_context,
+                autenticador=OAuth2ClientCredentials(
+                    conta=conta,
+                    url_token=config.endereco_token,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                ),
+                limitador=limitador,
+                retry=retry,
+                dormir=dormir,
+            )
+
+        self._transporte = transporte(
+            config.conta,
+            config.client_id,
+            config.client_secret,
+            config.certificado_pem,
+            config.chave_pem,
         )
-        self._transporte = Transporte(
-            banco=self.banco,
-            conta=config.conta,
-            base_url=config.base_cobranca,
-            client=client,
-            ssl_context=ssl_context,
-            autenticador=auth,
-            limitador=LimitadorTaxa(config.requisicoes_por_segundo, dormir=dormir),
-            retry=retry,
-            dormir=dormir,
-        )
+        self._transporte_bolecode = self._transporte
+        if config.bolecode_client_id and config.bolecode_client_secret:
+            self._transporte_bolecode = transporte(
+                f"{config.conta}:bolecode",
+                config.bolecode_client_id,
+                config.bolecode_client_secret,
+                config.bolecode_certificado_pem or config.certificado_pem,
+                config.bolecode_chave_pem or config.chave_pem,
+            )
 
     async def aclose(self) -> None:
         await self._transporte.aclose()
+        if self._transporte_bolecode is not self._transporte:
+            await self._transporte_bolecode.aclose()
 
-    def _cabecalhos(self) -> dict[str, str]:
+    def _cabecalhos(self, client_id: str) -> dict[str, str]:
         return {
-            "x-itau-apikey": self._config.client_id,
+            "x-itau-apikey": client_id,
             "x-itau-correlationID": self._correlacao(),
+            "x-itau-flowID": self._correlacao(),
         }
 
     async def _chamar(
@@ -321,7 +382,7 @@ class ItauAdapter(BankAdapter):
             caminho,
             operacao=operacao,
             json=json,
-            cabecalhos=self._cabecalhos(),
+            cabecalhos=self._cabecalhos(self._config.client_id),
             base_url=base_url,
         )
 
@@ -347,11 +408,6 @@ class ItauAdapter(BankAdapter):
 
     def _dado_boleto(self, titulo: Titulo, nosso_numero: str) -> dict[str, Any]:
         cfg = self._config
-        if titulo.dias_baixa_automatica is not None:
-            raise Validacao(
-                "Itau: baixa automatica por dias nao suportada (nome do campo da "
-                "instrucao em aberto, ver docs/itau-duvidas.md)"
-            )
         enc = titulo.encargos
         instrumento = "boleto_pix" if cfg.bolecode else "boleto"
         dado: dict[str, Any] = {
@@ -362,9 +418,6 @@ class ItauAdapter(BankAdapter):
             "codigo_especie": ESPECIES[cfg.especie],
             "valor_abatimento": _centavos17(enc.abatimento or Decimal(0)),
             "data_emissao": self._hoje().isoformat(),
-            "indicador_pagamento_parcial": False,
-            "quantidade_maximo_parcial": 0,
-            "desconto_expresso": False,
             "pagador": _pessoa(titulo.pagador, papel="pagador", exigir_endereco=True),
             "dados_individuais_boleto": [
                 {
@@ -376,23 +429,40 @@ class ItauAdapter(BankAdapter):
                 }
             ],
         }
+        if not cfg.bolecode:
+            # O endpoint novo do Bolecode nao usa estes campos.
+            dado["indicador_pagamento_parcial"] = False
+            dado["desconto_expresso"] = False
         if titulo.beneficiario:
             dado["sacador_avalista"] = _pessoa(
                 titulo.beneficiario, papel="sacador", exigir_endereco=False
             )
+        if titulo.mensagens:
+            dado["lista_mensagem_cobranca"] = [
+                {"mensagem": mensagem} for mensagem in titulo.mensagens
+            ]
+        if titulo.dias_baixa_automatica is not None:
+            if titulo.dias_baixa_automatica < 1:
+                raise Validacao("Itau: baixa automatica exige ao menos 1 dia")
+            dado["instrucao_cobranca"] = [
+                {
+                    "codigo_instrucao_cobranca": _INSTRUCAO_BAIXAR,
+                    "quantidade_dias_apos_vencimento": titulo.dias_baixa_automatica,
+                }
+            ]
         if enc.multa_percentual is not None:
             dado["multa"] = {
                 "codigo_tipo_multa": _TIPO_MULTA_PERCENTUAL,
                 "percentual_multa": _percentual12(enc.multa_percentual),
-                "quantidade_dias_multa": _DIAS_APOS_VENCIMENTO,
+                **self._inicio_encargo("multa", titulo),
             }
         else:
             dado["multa"] = {"codigo_tipo_multa": _TIPO_MULTA_ISENTO}
         if enc.juros_mensal_percentual is not None:
             dado["juros"] = {
                 "codigo_tipo_juros": _TIPO_JUROS_PERCENTUAL_MENSAL,
-                "quantidade_dias_juros": _DIAS_APOS_VENCIMENTO,
                 "percentual_juros": _percentual12(enc.juros_mensal_percentual),
+                **self._inicio_encargo("juros", titulo),
             }
         if enc.desconto_percentual is not None and enc.desconto_dias_antes is not None:
             limite = titulo.vencimento - timedelta(days=enc.desconto_dias_antes)
@@ -406,6 +476,13 @@ class ItauAdapter(BankAdapter):
                 ],
             }
         return dado
+
+    def _inicio_encargo(self, nome: str, titulo: Titulo) -> dict[str, Any]:
+        """Quando multa ou juros comecam: data no Bolecode, dias no CASH."""
+        if self._config.bolecode:
+            inicio = titulo.vencimento + timedelta(days=_DIAS_APOS_VENCIMENTO)
+            return {f"data_{nome}": inicio.isoformat()}
+        return {f"quantidade_dias_{nome}": _DIAS_APOS_VENCIMENTO}
 
     def _montar_payload(self, titulo: Titulo, nosso_numero: str) -> dict[str, Any]:
         cfg = self._config
@@ -436,21 +513,37 @@ class ItauAdapter(BankAdapter):
                 "resposta do Itau nao e JSON", status_http=resp.status_code
             ) from exc
 
+    @staticmethod
+    def _em_andamento(resp: httpx.Response, corpo: Any) -> bool:
+        """Bolecode ainda em processamento: 202 com `{codigo, mensagem}`."""
+        codigo = corpo.get("codigo") if isinstance(corpo, dict) else None
+        return resp.status_code == 202 or str(codigo) == "202"
+
     async def registrar_titulo(self, titulo: Titulo) -> TituloRegistrado:
         cfg = self._config
         nosso_numero = self._nosso_numero(titulo)
         payload = self._montar_payload(titulo, nosso_numero)
         if cfg.bolecode:
-            resp = await self._chamar(
+            resp = await self._transporte_bolecode.requisitar(
                 "POST",
                 cfg.caminho_bolecode,
-                "registrar",
+                operacao="registrar",
                 json=payload,
+                cabecalhos=self._cabecalhos(cfg.bolecode_client_id or cfg.client_id),
                 base_url=cfg.base_bolecode,
             )
         else:
             resp = await self._chamar("POST", "boletos", "registrar", json=payload)
-        corpo = self._json(resp)
+        corpo = {} if resp.status_code == 202 and not resp.content else self._json(resp)
+        if cfg.bolecode and self._em_andamento(resp, corpo):
+            return TituloRegistrado(
+                banco=self.banco,
+                id_banco=nosso_numero,
+                status=StatusCanonico.PENDENTE_REGISTRO,
+                seu_numero=titulo.seu_numero,
+                nosso_numero=nosso_numero,
+                resposta_bruta=corpo if isinstance(corpo, dict) else {},
+            )
         raiz = corpo.get("data") if isinstance(corpo, dict) else None
         if not isinstance(raiz, dict):
             raiz = corpo if isinstance(corpo, dict) else {}
@@ -563,8 +656,19 @@ class ItauAdapter(BankAdapter):
                 raise Validacao("abatimento exige valor")
             campo = "abatimento"
             corpo = {"valor_abatimento": _decimal_texto(instrucao.valor)}
+        elif tipo is TipoInstrucao.PROTESTO:
+            # A Instrucao canonica nao tem dias: vem da config.
+            if self._config.dias_protesto is None:
+                raise Validacao("Itau: protesto exige dias_protesto na ItauConfig")
+            campo = "protesto"
+            corpo = {
+                "protesto": {
+                    "codigo_tipo_protesto": _TIPO_PROTESTAR,
+                    "quantidade_dias_protesto": self._config.dias_protesto,
+                }
+            }
         else:
-            # Protesto exige quantidade de dias, que a Instrucao canonica nao tem.
+            # Negativacao: codigos de tipo sem fonte concordante (docs/itau-duvidas.md).
             raise NaoSuportado(f"itau: instrucao {tipo.value} nao implementada")
         await self._chamar(
             "PATCH",
@@ -588,6 +692,7 @@ class ItauAdapter(BankAdapter):
         corpo: bytes | str | list | dict,
         cabecalhos: Mapping[str, str] | None = None,
     ) -> list[EventoCanonico]:
+        # Ha cadastro e OAuth2 documentados, mas o corpo da notificacao nao.
         raise NaoSuportado(
-            "itau: webhook de boleto sem contrato conhecido (docs/itau-duvidas.md)"
+            "itau: corpo do webhook de boleto sem fonte (docs/itau-duvidas.md)"
         )

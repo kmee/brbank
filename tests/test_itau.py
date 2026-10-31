@@ -65,12 +65,14 @@ def test_entry_point_e_marca_de_validacao():
     assert obter_classe("itau") is ItauAdapter
     assert ItauAdapter.validado_sandbox is False
     assert Capacidade.HIBRIDO in ItauAdapter.capacidades
+    assert Capacidade.EMISSAO_ASSINCRONA in ItauAdapter.capacidades
     assert Capacidade.WEBHOOK not in ItauAdapter.capacidades
     assert Capacidade.PDF not in ItauAdapter.capacidades
 
 
-def test_cash_nao_declara_hibrido(adapter_cash, adapter):
+def test_cash_nao_declara_hibrido_nem_assincrono(adapter_cash, adapter):
     assert not adapter_cash.suporta(Capacidade.HIBRIDO)
+    assert not adapter_cash.suporta(Capacidade.EMISSAO_ASSINCRONA)
     assert adapter_cash.suporta(Capacidade.BAIXA)
     assert adapter.suporta(Capacidade.HIBRIDO)
 
@@ -86,6 +88,10 @@ def test_config_invalida():
         _config(carteira=1000)
     with pytest.raises(Validacao, match="especie"):
         _config(especie="XX")
+    with pytest.raises(Validacao, match="dias_protesto"):
+        _config(dias_protesto=0)
+    with pytest.raises(Validacao, match="bolecode_client_id"):
+        _config(bolecode_client_id="so-o-id")
 
 
 async def test_token_e_cabecalhos(adapter, falso):
@@ -99,6 +105,7 @@ async def test_token_e_cabecalhos(adapter, falso):
     assert cab["authorization"] == "Bearer tok-1"
     assert cab["x-itau-apikey"] == "cid"
     assert cab["x-itau-correlationid"] == "corr-1"
+    assert cab["x-itau-flowid"] == "corr-1"
     assert falso.hosts[0] == "sts.itau.com.br"
 
 
@@ -112,6 +119,13 @@ async def test_bolecode_registra_no_endpoint_pix(adapter, falso):
     assert corpo["beneficiario"] == {"id_beneficiario": "150000050005"}
     assert corpo["dados_qrcode"] == {"chave": "chave@kmee.com.br"}
     assert corpo["dado_boleto"]["descricao_instrumento_cobranca"] == "boleto_pix"
+    # Campos que o endpoint novo nao usa (ACBr r48815, "nao usado na nova api pix").
+    for campo in (
+        "indicador_pagamento_parcial",
+        "quantidade_maximo_parcial",
+        "desconto_expresso",
+    ):
+        assert campo not in corpo["dado_boleto"]
     assert registrado.id_banco == "00000001"
     assert registrado.pix_copia_cola == "00020101021226..."
     assert registrado.txid == "tx00000001"
@@ -121,11 +135,15 @@ async def test_bolecode_registra_no_endpoint_pix(adapter, falso):
 async def test_cash_registra_com_envelope_data(adapter_cash, falso):
     registrado = await adapter_cash.registrar_titulo(fazer_titulo())
     assert falso.chamadas[-1] == ("POST", "/cash_management/v2/boletos")
-    assert falso.hosts[-1] == "api.itau.com.br"
+    # Host novo do comunicado de certificados do Itau.
+    assert falso.hosts[-1] == "api.gateway.itau.com.br"
     data = falso.ultimo_corpo["data"]
     assert data["codigo_canal_operacao"] == "API"
     assert data["etapa_processo_boleto"] == "efetivacao"
     assert data["dado_boleto"]["descricao_instrumento_cobranca"] == "boleto"
+    assert data["dado_boleto"]["indicador_pagamento_parcial"] is False
+    assert data["dado_boleto"]["desconto_expresso"] is False
+    assert "quantidade_maximo_parcial" not in data["dado_boleto"]
     assert "dados_qrcode" not in data
     assert registrado.pix_copia_cola is None
 
@@ -160,12 +178,12 @@ async def test_payload_valores_e_encargos(adapter, falso):
     assert dado["multa"] == {
         "codigo_tipo_multa": "02",
         "percentual_multa": "000000200000",
-        "quantidade_dias_multa": 1,
+        "data_multa": "2026-12-11",
     }
     assert dado["juros"] == {
         "codigo_tipo_juros": "90",
-        "quantidade_dias_juros": 1,
         "percentual_juros": "000000100000",
+        "data_juros": "2026-12-11",
     }
     assert dado["desconto"] == {
         "codigo_tipo_desconto": "02",
@@ -184,6 +202,80 @@ async def test_payload_valores_e_encargos(adapter, falso):
     assert sacador["numero_cadastro_nacional_pessoa_juridica"] == "91300766000147"
 
 
+async def test_cash_encargos_em_dias_apos_o_vencimento(adapter_cash, falso):
+    titulo = fazer_titulo().model_copy(
+        update={
+            "encargos": Encargos(multa_percentual="2", juros_mensal_percentual="1"),
+        }
+    )
+    await adapter_cash.registrar_titulo(titulo)
+    dado = falso.ultimo_corpo["data"]["dado_boleto"]
+    assert dado["multa"]["quantidade_dias_multa"] == 1
+    assert dado["juros"]["quantidade_dias_juros"] == 1
+    assert "data_multa" not in dado["multa"]
+    assert "data_juros" not in dado["juros"]
+
+
+async def test_mensagens_vao_na_lista_de_cobranca(adapter, falso):
+    await adapter.registrar_titulo(
+        fazer_titulo().model_copy(update={"mensagens": ("Linha 1", "Linha 2")})
+    )
+    assert falso.ultimo_corpo["dado_boleto"]["lista_mensagem_cobranca"] == [
+        {"mensagem": "Linha 1"},
+        {"mensagem": "Linha 2"},
+    ]
+
+
+async def test_baixa_automatica_vira_instrucao_8(adapter, falso):
+    await adapter.registrar_titulo(
+        fazer_titulo().model_copy(update={"dias_baixa_automatica": 30})
+    )
+    assert falso.ultimo_corpo["dado_boleto"]["instrucao_cobranca"] == [
+        {"codigo_instrucao_cobranca": "8", "quantidade_dias_apos_vencimento": 30}
+    ]
+
+
+async def test_bolecode_em_andamento_fica_pendente(adapter, falso):
+    falso.bolecode_em_andamento = True
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    assert registrado.status is StatusCanonico.PENDENTE_REGISTRO
+    assert registrado.id_banco == "00000001"
+    assert registrado.nosso_numero == "00000001"
+    assert registrado.linha_digitavel is None
+
+
+async def test_bolecode_202_sem_corpo_fica_pendente(adapter, falso):
+    original = falso.tratar
+
+    def tratar(request):
+        if request.url.path.endswith("/boletos-pix"):
+            return httpx.Response(202)
+        return original(request)
+
+    falso.tratar = tratar
+    adapter._transporte._client = falso.cliente()
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    assert registrado.status is StatusCanonico.PENDENTE_REGISTRO
+
+
+async def test_credencial_separada_para_a_emissao_do_bolecode(falso, dormir):
+    adapter = _adapter(
+        falso,
+        dormir,
+        bolecode_client_id="cid-pix",
+        bolecode_client_secret="segredo-pix",
+    )
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    assert falso.clientes_token == ["cid-pix"]
+    assert falso.ultimo_cabecalho["x-itau-apikey"] == "cid-pix"
+    await adapter.baixar_titulo(registrado.id_banco)
+    assert falso.clientes_token == ["cid-pix", "cid"]
+    assert falso.ultimo_cabecalho["x-itau-apikey"] == "cid"
+    await adapter.consultar_titulo(registrado.id_banco)
+    assert falso.ultimo_cabecalho["x-itau-apikey"] == "cid"
+    await adapter.aclose()
+
+
 async def test_sem_encargos_dispensa_multa_e_omite_juros(adapter, falso):
     await adapter.registrar_titulo(fazer_titulo())
     dado = falso.ultimo_corpo["dado_boleto"]
@@ -197,7 +289,11 @@ async def test_sandbox_usa_simulacao_e_urls_de_sandbox(falso, dormir):
     adapter = _adapter(falso, dormir, ambiente="sandbox")
     await adapter.registrar_titulo(fazer_titulo())
     assert falso.ultimo_corpo["etapa_processo_boleto"] == "simulacao"
-    assert falso.hosts == ["devportal.itau.com.br", "sandbox.devportal.itau.com.br"]
+    assert falso.chamadas[0] == ("POST", "/api/oauth/jwt")
+    assert falso.hosts == [
+        "sandbox.devportal.itau.com.br",
+        "sandbox.devportal.itau.com.br",
+    ]
     cash = _adapter(ItauFalso(), dormir, ambiente="sandbox", bolecode=False)
     assert cash._config.etapa == "validacao"
 
@@ -214,7 +310,7 @@ async def test_nosso_numero_invalido(falso, dormir):
 async def test_recusas_de_payload(adapter):
     with pytest.raises(Validacao, match="baixa automatica"):
         await adapter.registrar_titulo(
-            fazer_titulo().model_copy(update={"dias_baixa_automatica": 30})
+            fazer_titulo().model_copy(update={"dias_baixa_automatica": 0})
         )
     titulo = fazer_titulo()
     sem = titulo.pagador.model_copy(update={"endereco": None})
@@ -347,6 +443,20 @@ async def test_instrucao_abatimento_e_baixa(adapter, falso):
     assert falso.ultimo_corpo == {}
 
 
+async def test_instrucao_protesto_usa_dias_da_config(falso, dormir):
+    adapter = _adapter(falso, dormir, dias_protesto=5)
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    await adapter.enviar_instrucao(
+        registrado.id_banco,
+        Instrucao(chave_idempotencia="p", tipo=TipoInstrucao.PROTESTO),
+    )
+    caminho = "/cash_management/v2/boletos/15000005000510900000001/protesto"
+    assert ("PATCH", caminho) in falso.chamadas
+    assert falso.ultimo_corpo == {
+        "protesto": {"codigo_tipo_protesto": 1, "quantidade_dias_protesto": 5}
+    }
+
+
 async def test_instrucoes_invalidas(adapter):
     with pytest.raises(Validacao):
         await adapter.enviar_instrucao(
@@ -356,11 +466,14 @@ async def test_instrucoes_invalidas(adapter):
         await adapter.enviar_instrucao(
             "1", Instrucao(chave_idempotencia="x", tipo=TipoInstrucao.ABATIMENTO)
         )
-    for tipo in (TipoInstrucao.PROTESTO, TipoInstrucao.NEGATIVACAO):
-        with pytest.raises(NaoSuportado):
-            await adapter.enviar_instrucao(
-                "1", Instrucao(chave_idempotencia="x", tipo=tipo)
-            )
+    with pytest.raises(Validacao, match="dias_protesto"):
+        await adapter.enviar_instrucao(
+            "1", Instrucao(chave_idempotencia="x", tipo=TipoInstrucao.PROTESTO)
+        )
+    with pytest.raises(NaoSuportado):
+        await adapter.enviar_instrucao(
+            "1", Instrucao(chave_idempotencia="x", tipo=TipoInstrucao.NEGATIVACAO)
+        )
     with pytest.raises(Validacao, match="8 digitos"):
         await adapter.baixar_titulo("abc")
 
@@ -373,7 +486,19 @@ async def test_webhook_e_pdf_nao_suportados(adapter):
 
 
 def test_repr_da_config_nao_vaza_segredos():
-    texto = repr(_config(certificado_pem=b"cert-x", chave_pem=b"chave-y"))
+    texto = repr(
+        _config(
+            certificado_pem=b"cert-x",
+            chave_pem=b"chave-y",
+            bolecode_client_id="cid-pix",
+            bolecode_client_secret="outro-oculto",
+            bolecode_certificado_pem=b"cert-z",
+            bolecode_chave_pem=b"chave-w",
+        )
+    )
     assert "segredo" not in texto
+    assert "outro-oculto" not in texto
+    assert "cert-z" not in texto
+    assert "chave-w" not in texto
     assert "cert-x" not in texto
     assert "chave@kmee" not in texto
