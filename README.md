@@ -29,13 +29,13 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 | PinBank | `pinbank` | Boleto, envelope AES-CBC | baixa | Odoo |
 | Banco do Brasil (001) | `bb` | Cobranca v2 | alteracao, baixa | homologacao |
 | Banrisul (041) | `banrisul` | Cobranca v1, boleto hibrido | hibrido, alteracao, baixa, PDF | oficial |
-| Bradesco (237) | `bradesco` | Cobranca convencional (sem QR Code) | baixa | publica e terceiros |
+| Bradesco (237) | `bradesco` | Cobranca convencional e com QR Code (`hibrido=True`) | alteracao, baixa, hibrido e webhook por config | oficial |
 | BTG Pactual (208) | `btg` | Banking Collections, bolepix | hibrido, alteracao, baixa, PDF, webhook, emissao assincrona | oficial |
 | C6 Bank (336) | `c6` | Bolepix v2, boleto hibrido | hibrido, alteracao, baixa, PDF, webhook | oficial |
 | Caixa (104) | `caixa` | SIGCB, webservice SOAP | hibrido, alteracao, baixa | oficial (WSDL) |
-| Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa | publica e terceiros |
+| Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa, emissao assincrona | publica e terceiros (especificacao exige login) |
 | Safra (422) | `safra` | Cobranca v1 | so registro e consulta | publica e terceiros |
-| Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, emissao assincrona | publica e terceiros |
+| Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, PDF, webhook | oficial |
 | Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa, PDF | sandbox e swagger |
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | publica e terceiros |
 | Unicred (136) | `unicred` | Cobranca, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | oficial |
@@ -51,7 +51,7 @@ opcional de **recorrencia** (`brbank.recorrencia`, capacidade `RECORRENCIA`): `c
 de cartao na biblioteca, `criar_checkout` (pagina hospedada, capacidade `CHECKOUT`). O gateway gera a
 cobranca de cada ciclo e avisa pelo webhook de cobranca (`EventoCanonico.id_recorrencia`); os eventos
 de assinatura e de checkout chegam por `parse_webhook_recorrencia`. Fora desta lista por enquanto:
-BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda), o boleto hibrido do Bradesco e
+BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda) e
 a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
 
@@ -202,11 +202,11 @@ O `BancoDoBrasilAdapter` (`bb`, API Cobranca v2, convenio de 6 ou 7 digitos) usa
 prorroga e abate, sem webhook nem PDF. Nasce com `validado_sandbox = False`: ver
 `docs/bb-duvidas.md`.
 
-O `BradescoAdapter` (`bradesco`, API Cobranca convencional do portal Bradesco Developers)
-usa OAuth2 `client_credentials` sobre mTLS (o fluxo legado com JWT nao e coberto); registra,
-consulta e baixa pelo nosso numero gerado pelo banco. Sem alteracao, PDF nem webhook
-declarados; desconto e abatimento no registro sao recusados ate haver contrato. Nasce com
-`validado_sandbox = False`: ver `docs/bradesco-duvidas.md`.
+O `BradescoAdapter` (`bradesco`, APIs de cobranca do portal Bradesco Developers) usa OAuth2
+`client_credentials` sobre mTLS (o fluxo legado com JWT nao e coberto); registra, consulta,
+baixa, prorroga e abate, com protesto e negativacao no convencional, boleto com QR Code por
+`hibrido=True` e webhook por `webhook=True`, que so dispara reconsulta. A API nao tem PDF. Segue
+com `validado_sandbox = False`: ver `docs/bradesco-duvidas.md`.
 
 O `SicrediAdapter` (API de Cobranca v2, OAuth2 `password`) registra, consulta, baixa e
 altera (prorrogacao e abatimento); webhook sem assinatura exige reconsulta. Nasce com

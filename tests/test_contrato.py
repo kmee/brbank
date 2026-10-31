@@ -29,7 +29,7 @@ from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
 from brbank.adapters.unicred import UnicredAdapter, UnicredConfig
-from tests import asaas_falso, unicred_falso
+from tests import asaas_falso, santander_falso, unicred_falso
 from tests.asaas_falso import AsaasFalso
 from tests.banrisul_falso import BENEFICIARIO, BanrisulFalso
 from tests.bb_falso import CHAVE_DEV, BBFalso
@@ -244,6 +244,7 @@ def _santander(dormir):
         chave_pix="91300766000147",
         tipo_chave_pix="CNPJ",
         gerar_nosso_numero=lambda _titulo: next(sequencia),
+        webhook_ativo=True,
     )
     return SantanderAdapter(config, client=falso.cliente(), dormir=dormir), falso
 
@@ -393,7 +394,7 @@ FABRICAS = [
         nome="santander",
         criar=_santander,
         liquidar=lambda falso, id_banco: falso.liquidar(id_banco),
-        webhook=lambda id_banco, situacao: b"[]",
+        webhook=lambda id_banco, situacao: santander_falso.webhook(id_banco),
     ),
     Fabrica(
         nome="unicred",
