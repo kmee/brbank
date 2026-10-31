@@ -84,6 +84,10 @@ class PoliticaRetry:
         return espera * (1 + random.random() * self.jitter)
 
 
+# Uma tentativa so (o renovar token apos 401 continua valendo).
+SEM_RETRY = PoliticaRetry(tentativas=1)
+
+
 def erro_de_resposta(resp: httpx.Response) -> ErroBrbank:
     """Traduz status HTTP de falha para o erro canonico."""
     status = resp.status_code
@@ -158,7 +162,12 @@ class Transporte:
         json: Any = None,
         cabecalhos: Mapping[str, str] | None = None,
         base_url: str | None = None,
+        retry: PoliticaRetry | None = None,
     ) -> httpx.Response:
+        """`retry` troca a politica so nesta chamada: um pagamento que executa na
+        hora e sem chave de idempotencia no banco usa `SEM_RETRY`, porque repetir
+        depois de um timeout pode pagar duas vezes."""
+        politica = retry or self._retry
         base_da_chamada = (base_url or self._base).rstrip("/")
         url = f"{base_da_chamada}/{caminho.lstrip('/')}"
         corpo = None
@@ -197,9 +206,9 @@ class Transporte:
                     await self._auth.invalidar(escopo)
                     continue
                 retry_after = _retry_after(resp)
-            if not erro.retryable or tentativa + 1 >= self._retry.tentativas:
+            if not erro.retryable or tentativa + 1 >= politica.tentativas:
                 raise erro
-            await self._dormir(self._retry.atraso(tentativa, retry_after))
+            await self._dormir(politica.atraso(tentativa, retry_after))
             tentativa += 1
 
     def _decifrar(self, resp: httpx.Response) -> httpx.Response:

@@ -39,6 +39,7 @@ from brbank.instrumento import (
     linha_digitavel_do_codigo,
     normalizar_codigo_barras,
     tipo_codigo,
+    vencimento_do_boleto,
 )
 from brbank.modelos import (
     Encargos,
@@ -64,6 +65,7 @@ from brbank.pagamento import (
     StatusPagamento,
     TipoChavePix,
     TipoPagamento,
+    status_lote_local,
 )
 from brbank.recorrencia import (
     AdapterRecorrencia,
@@ -78,7 +80,14 @@ from brbank.recorrencia import (
     StatusCheckout,
     TipoEventoRecorrencia,
 )
-from brbank.registro import criar_adapter, listar_adapters, obter_classe
+from brbank.registro import (
+    criar_adapter,
+    criar_adapter_pagamento,
+    listar_adapters,
+    listar_adapters_pagamento,
+    obter_classe,
+    obter_classe_pagamento,
+)
 from brbank.status import StatusCanonico, TabelaStatus
 
 __all__ = [
@@ -146,11 +155,16 @@ __all__ = [
     "Validacao",
     "codigo_barras_da_linha",
     "criar_adapter",
+    "criar_adapter_pagamento",
     "ler_brcode",
     "linha_digitavel_do_codigo",
     "listar_adapters",
+    "listar_adapters_pagamento",
     "normalizar_codigo_barras",
     "normalizar_linha_digitavel",
     "obter_classe",
+    "obter_classe_pagamento",
+    "status_lote_local",
     "tipo_codigo",
+    "vencimento_do_boleto",
 ]
