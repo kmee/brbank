@@ -48,6 +48,7 @@ from brbank.modelos import (
     TituloRegistrado,
 )
 from brbank.status import StatusCanonico, TabelaStatus
+from brbank.tempo import hoje_brasil
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte, contexto_tls
 
 URL_PRODUCAO = "https://api.banrisul.com.br/cobranca/v1"
@@ -249,7 +250,7 @@ class BanrisulAdapter(BankAdapter):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
     ) -> None:
         self._config = config
         self._hoje = hoje

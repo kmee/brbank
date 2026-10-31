@@ -56,6 +56,7 @@ from brbank.modelos import (
     TituloRegistrado,
 )
 from brbank.status import StatusCanonico, TabelaStatus
+from brbank.tempo import hoje_brasil
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte
 
 URL_PRODUCAO = "https://barramento.caixa.gov.br/sibar"
@@ -350,7 +351,7 @@ class CaixaAdapter(BankAdapter):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
         agora: Callable[[], datetime] = datetime.now,
     ) -> None:
         self._config = config

@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from brbank._compat import StrEnum
+from brbank.tempo import hoje_brasil
 
 # --- boleto e guia -----------------------------------------------------------
 
@@ -176,7 +177,7 @@ def vencimento_do_boleto(codigo: str, *, hoje: date | None = None) -> date | Non
     fator = int(codigo[5:9])
     if fator == 0:
         return None
-    referencia = hoje or date.today()
+    referencia = hoje or hoje_brasil()
     candidatas = [_BASE_FATOR + timedelta(days=fator)]
     if fator >= 1000:
         candidatas.append(_BASE_FATOR_2025 + timedelta(days=fator - 1000))

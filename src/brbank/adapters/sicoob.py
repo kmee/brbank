@@ -38,6 +38,7 @@ from brbank.modelos import (
     TituloRegistrado,
 )
 from brbank.status import StatusCanonico, TabelaStatus
+from brbank.tempo import hoje_brasil
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte, contexto_tls
 
 URL_PRODUCAO = "https://api.sicoob.com.br/cobranca-bancaria/v3"
@@ -176,7 +177,7 @@ class SicoobAdapter(BankAdapter):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
     ) -> None:
         especie = config.codigo_especie_documento
         if not isinstance(especie, str) or not _ESPECIE.fullmatch(especie):

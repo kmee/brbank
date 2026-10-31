@@ -57,6 +57,7 @@ from brbank.pagamento import (
     TipoPagamento,
     status_lote_local,
 )
+from brbank.tempo import hoje_brasil
 from brbank.transporte import (
     SEM_RETRY,
     LimitadorTaxa,
@@ -289,7 +290,7 @@ class ItauPagamentoAdapter(AdapterPagamento):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
         correlacao: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
         self._config = config

@@ -56,6 +56,7 @@ from brbank.modelos import (
     TituloRegistrado,
 )
 from brbank.status import StatusCanonico, TabelaStatus
+from brbank.tempo import hoje_brasil
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte, contexto_tls
 
 # api.itau.com.br saiu no comunicado de certificados (data limite 18/10/2026):
@@ -302,7 +303,7 @@ class ItauAdapter(BankAdapter):
         client: httpx.AsyncClient | None = None,
         retry: PoliticaRetry | None = None,
         dormir: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        hoje: Callable[[], date] = date.today,
+        hoje: Callable[[], date] = hoje_brasil,
         correlacao: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
         self._config = config
