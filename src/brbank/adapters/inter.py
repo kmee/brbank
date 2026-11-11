@@ -26,8 +26,10 @@ from brbank.capacidades import Capacidade
 from brbank.erros import NaoSuportado, Validacao
 from brbank.mascara import mascarar
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
+    MotivoBaixa,
     Pessoa,
     Titulo,
     TituloRegistrado,
@@ -63,6 +65,30 @@ TABELA_STATUS = TabelaStatus.criar(
         "FALHA_EMISSAO": StatusCanonico.REJEITADO,
     },
 )
+
+
+# OrigemRecebimentoEnum do OpenAPI da Cobranca v3 (consulta e callback).
+CANAIS_LIQUIDACAO = {
+    "BOLETO": CanalLiquidacao.CODIGO_BARRAS,
+    "PIX": CanalLiquidacao.PIX,
+}
+# motivoCancelamento: o dominio do POST /cancelar, que a consulta e o callback
+# devolvem. ACERTOS, PAGODIRETOAOCLIENTE, SUBSTITUICAO e texto livre viram OUTRO.
+# A situacao EXPIRADO nao tem descricao no OpenAPI: sem motivo.
+MOTIVOS_BAIXA = {
+    "APEDIDODOCLIENTE": MotivoBaixa.SOLICITACAO,
+}
+
+
+def _detalhe(status: StatusCanonico, origem: Any, motivo: Any) -> dict[str, Any]:
+    """Canal da liquidacao e motivo da baixa, so com o que o Inter informa."""
+    if status is StatusCanonico.LIQUIDADO and origem:
+        canal = CANAIS_LIQUIDACAO.get(str(origem).upper(), CanalLiquidacao.OUTRO)
+        return {"canal_liquidacao": canal}
+    if status is StatusCanonico.BAIXADO and motivo:
+        texto = str(motivo).strip().upper()
+        return {"motivo_baixa": MOTIVOS_BAIXA.get(texto, MotivoBaixa.OUTRO)}
+    return {}
 
 
 @dataclass
@@ -277,6 +303,11 @@ class InterAdapter(BankAdapter):
                 else None
             ),
             resposta_bruta=dados,
+            **_detalhe(
+                status,
+                cobranca.get("origemRecebimento"),
+                cobranca.get("motivoCancelamento"),
+            ),
         )
 
     async def enviar_instrucao(
@@ -339,14 +370,20 @@ class InterAdapter(BankAdapter):
             if not isinstance(item, dict) or not item.get("codigoSolicitacao"):
                 raise Validacao("webhook do Inter sem codigoSolicitacao")
             momento = item.get("dataHoraSituacao")
+            tipo = self.tabela_status.traduzir(item.get("situacao"))
             eventos.append(
                 EventoCanonico(
                     banco=self.banco,
                     referencia=item["codigoSolicitacao"],
-                    tipo=self.tabela_status.traduzir(item.get("situacao")),
+                    tipo=tipo,
                     ocorrido_em=datetime_iso(momento) if momento else None,
                     valor_pago=_dinheiro(item.get("valorTotalRecebido")),
                     resposta_bruta=mascarar(item),
+                    **_detalhe(
+                        tipo,
+                        item.get("origemRecebimento"),
+                        item.get("motivoCancelamento"),
+                    ),
                 )
             )
         return eventos

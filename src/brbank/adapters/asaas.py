@@ -242,6 +242,23 @@ def _data(texto: Any) -> date | None:
         return None
 
 
+def _detalhe(pagamento: dict[str, Any], status: StatusCanonico | None) -> dict:
+    """Detalhe da liquidacao, so com o que o OpenAPI v3 do Asaas descreve.
+
+    `creditDate` ("data que o credito ficou disponivel") so vem com o saldo
+    liberado (RECEIVED); em CONFIRMED fica None. `interestValue` e o "valor de
+    juros e multa"; o guia de boleto o usa para explicar a diferenca do pago. A
+    tarifa nao tem campo: `value - netValue` seria deducao. O `billingType` e o
+    meio escolhido na criacao, nao prova por onde o titulo foi pago.
+    """
+    if status is not StatusCanonico.LIQUIDADO:
+        return {}
+    return {
+        "data_credito": _data(pagamento.get("creditDate")),
+        "valor_juros_multa": _dinheiro(pagamento.get("interestValue")),
+    }
+
+
 def _momento(texto: Any) -> datetime | None:
     """`dateCreated` chega como "AAAA-MM-DD HH:MM:SS", sem fuso (hora de
     Brasilia, pelo que a documentacao mostra); fica naive."""
@@ -565,6 +582,7 @@ class AsaasAdapter(BankAdapter, AdapterRecorrencia):
                 else None
             ),
             resposta_bruta=dados,
+            **_detalhe(dados, status),
         )
 
     async def registrar_titulo(self, titulo: Titulo) -> TituloRegistrado:
@@ -714,6 +732,7 @@ class AsaasAdapter(BankAdapter, AdapterRecorrencia):
                     else None
                 ),
                 resposta_bruta=mascarar(corpo),
+                **_detalhe(pagamento, tipo),
             )
         ]
 

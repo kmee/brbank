@@ -7,6 +7,16 @@ Fontes usadas: leitura do ACBr (LGPL, so como documentacao, nenhum codigo portad
 o portal oficial do Sicredi nao foi acessado. Tudo abaixo precisa de confirmacao
 no sandbox/manual oficial antes de `validado_sandbox = True`.
 
+**Fonte oficial publica achada em 2026-11-11:** `developers.sicredi.com.br/public` publica o
+OpenAPI "API de Cobranca Sicredi v3.9.1" (cada pagina aceita o sufixo `.md`). Dela vem o detalhe
+da liquidacao da consulta (0.0.14): `dadosLiquidacao.juros`, `multa`, `desconto` e `abatimento` e
+`dataPrevisaoPagamento` ("data prevista de credito na conta do beneficiario"). A mesma fonte mostra
+o que ainda falta conferir no adapter: a `situacao` vem detalhada por canal (`LIQUIDADO PIX`,
+`LIQUIDADO REDE`, `LIQUIDADO COMPE`, `LIQUIDADO CARTORIO`, `LIQUIDADO CHEQUE`, `BAIXADO POR
+SOLICITACAO`), que a `TABELA_STATUS` atual recusaria, e os eventos do webhook levam sufixo
+(`LIQUIDACAO_COMPE_H5`, `_H6`, `_H8`, `LIQUIDACAO_CARTORIO`, `ESTORNO_LIQUIDACAO_REDE`), sem o corpo
+do aviso documentado. O canal so entra quando a tabela de status for revista com essa fonte.
+
 ## O que o adapter faz (confirmado so pelo ACBr)
 
 - Base `https://api-parceiro.sicredi.com.br` (sandbox com prefixo `/sb`). Token:

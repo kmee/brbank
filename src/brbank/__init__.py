@@ -42,10 +42,12 @@ from brbank.instrumento import (
     vencimento_do_boleto,
 )
 from brbank.modelos import (
+    CanalLiquidacao,
     Encargos,
     Endereco,
     EventoCanonico,
     Instrucao,
+    MotivoBaixa,
     Pessoa,
     TipoInstrucao,
     Titulo,
@@ -102,6 +104,7 @@ __all__ = [
     "AssinaturaRegistrada",
     "BankAdapter",
     "BrCode",
+    "CanalLiquidacao",
     "Capacidade",
     "CapacidadeDda",
     "CapacidadeExtrato",
@@ -124,6 +127,7 @@ __all__ = [
     "LotePagamento",
     "LoteRegistrado",
     "MeioCobranca",
+    "MotivoBaixa",
     "NaoSuportado",
     "Orquestrador",
     "Pagamento",

@@ -6,10 +6,12 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
     Indisponivel,
     Instrucao,
+    MotivoBaixa,
     NaoSuportado,
     StatusCanonico,
     TipoInstrucao,
@@ -36,7 +38,7 @@ from tests.bradesco_falso import (
     BradescoFalso,
     webhook_pagamento,
 )
-from tests.conftest import fazer_titulo
+from tests.conftest import assert_sem_detalhe, fazer_titulo
 
 
 def _config(**extra) -> BradescoConfig:
@@ -882,6 +884,55 @@ def test_webhook_so_dispara_consulta(falso, dormir):
     assert evento.valor_pago is None
     assert evento.ocorrido_em == datetime(2026, 12, 9, 0, 15, 8)
     assert evento.chave_dedup == ("bradesco", "123456", StatusCanonico.LIQUIDADO)
+    # Sem autenticidade, o aviso tambem nao leva o detalhe da liquidacao.
+    assert_sem_detalhe(evento)
+
+
+async def test_consulta_liquidada_sem_detalhe(adapter, falso):
+    # 61 "PAGO" nao diz o canal, e a consulta nao tem juros, credito nem tarifa.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    assert_sem_detalhe(await adapter.consultar_titulo(registrado.id_banco))
+
+
+async def test_pago_em_cartorio_diz_o_canal(adapter, falso):
+    # Tabela 1 do manual 1.6.4: 62 = PAGO EM CARTORIO.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    falso.titulos[registrado.id_banco]["codStatus"] = 62
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.canal_liquidacao is CanalLiquidacao.CARTORIO
+    assert consultado.motivo_baixa is None
+
+
+async def test_hibrido_51_e_pix(hibrido, falso):
+    # Manual com QR Code: 51 = por acerto, quando o pagamento ocorre via QR Code.
+    registrado = await hibrido.registrar_titulo(fazer_titulo())
+    falso.titulos[registrado.id_banco].update(
+        codStatus=51, dtPagto=9122026, vlrPagto=150.0
+    )
+    consultado = await hibrido.consultar_titulo(registrado.id_banco)
+    assert consultado.canal_liquidacao is CanalLiquidacao.PIX
+
+
+@pytest.mark.parametrize(
+    ("codigo", "motivo"),
+    [
+        (52, MotivoBaixa.DUPLICIDADE),
+        (53, MotivoBaixa.DECURSO_PRAZO),
+        (54, MotivoBaixa.JUDICIAL),
+        (57, MotivoBaixa.SOLICITACAO),
+        (58, MotivoBaixa.PROTESTO),
+        (59, MotivoBaixa.OUTRO),
+    ],
+)
+async def test_motivo_da_baixa_pelo_status(adapter, falso, codigo, motivo):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.titulos[registrado.id_banco].update(codStatus=codigo, vlrPagto=0)
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.status is StatusCanonico.BAIXADO
+    assert consultado.motivo_baixa is motivo
+    assert consultado.canal_liquidacao is None
 
 
 def test_webhook_aceita_lista_e_ignora_outros_eventos(falso, dormir):

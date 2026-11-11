@@ -110,7 +110,60 @@ class Titulo(_Modelo):
         return v.quantize(_CENTAVO, rounding=ROUND_HALF_UP)
 
 
-class TituloRegistrado(_Modelo):
+class CanalLiquidacao(StrEnum):
+    """Por onde o titulo foi pago, como o banco informa."""
+
+    PIX = "PIX"
+    # Linha digitavel ou codigo de barras, em qualquer banco ou canal.
+    CODIGO_BARRAS = "CODIGO_BARRAS"
+    CARTORIO = "CARTORIO"
+    DEBITO_CONTA = "DEBITO_CONTA"
+    # O banco informou um canal fora dos anteriores.
+    OUTRO = "OUTRO"
+
+
+class MotivoBaixa(StrEnum):
+    """Por que o titulo foi baixado sem pagamento, como o banco informa."""
+
+    SOLICITACAO = "SOLICITACAO"
+    DECURSO_PRAZO = "DECURSO_PRAZO"
+    PROTESTO = "PROTESTO"
+    DUPLICIDADE = "DUPLICIDADE"
+    JUDICIAL = "JUDICIAL"
+    # O banco informou um motivo fora dos anteriores.
+    OUTRO = "OUTRO"
+
+
+class _DetalheLiquidacao(_Modelo):
+    """Detalhe da liquidacao e da baixa, para conciliar sem adivinhar.
+
+    Cada campo so vem preenchido quando a resposta do banco traz o dado; o
+    adapter nunca o calcula (a tarifa nao e `valor - valor_pago`). None quer
+    dizer "o banco nao informou", nunca zero. Os campos de liquidacao so vem
+    com o titulo LIQUIDADO, e `motivo_baixa` so com ele BAIXADO. O que cada
+    banco preenche esta na tabela do README.
+    """
+
+    canal_liquidacao: CanalLiquidacao | None = None
+    # Data em que o valor entra (ou entrou) na conta do beneficiario.
+    data_credito: date | None = None
+    # Tarifa da liquidacao cobrada pelo banco do beneficiario.
+    valor_tarifa: Valor | None = None
+    # Juros e multa pagos pelo pagador, somados.
+    valor_juros_multa: Valor | None = None
+    # Desconto usado pelo pagador no pagamento.
+    valor_desconto: Valor | None = None
+    valor_abatimento: Valor | None = None
+    motivo_baixa: MotivoBaixa | None = None
+
+
+def somar_informados(*valores: Decimal | None) -> Decimal | None:
+    """Soma so o que o banco informou; None se nenhum veio (nunca vira zero)."""
+    informados = [v for v in valores if v is not None]
+    return sum(informados, Decimal(0)) if informados else None
+
+
+class TituloRegistrado(_DetalheLiquidacao):
     banco: str
     id_banco: str
     status: StatusCanonico
@@ -143,7 +196,7 @@ class Instrucao(_Modelo):
     valor: Valor | None = Field(default=None, gt=0)
 
 
-class EventoCanonico(_Modelo):
+class EventoCanonico(_DetalheLiquidacao):
     banco: str
     referencia: str
     tipo: StatusCanonico

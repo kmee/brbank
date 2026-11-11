@@ -55,6 +55,46 @@ BNB, os demais gateways (Mercado Pago, PagBank e Stone, sob demanda) e
 a variante ECOMM do Sicredi. Banco novo = um adapter com `BankAdapter`
 e um entry point em `brbank.adapters`.
 
+## Detalhe da liquidacao
+
+`TituloRegistrado` e `EventoCanonico` trazem, desde a 0.0.14, o detalhe para conciliar sem
+adivinhar: `canal_liquidacao` (`CanalLiquidacao`: `PIX`, `CODIGO_BARRAS`, `CARTORIO`,
+`DEBITO_CONTA`, `OUTRO`), `data_credito`, `valor_tarifa`, `valor_juros_multa`, `valor_desconto`,
+`valor_abatimento` e `motivo_baixa` (`MotivoBaixa`: `SOLICITACAO`, `DECURSO_PRAZO`, `PROTESTO`,
+`DUPLICIDADE`, `JUDICIAL`, `OUTRO`). Todos sao opcionais e `None` quer dizer "o banco nao
+informou", nunca zero. O adapter so preenche o que a resposta do banco traz, com fonte oficial;
+nada e calculado (a tarifa nunca e `valor - valor_pago`, o creditado nunca vira tarifa). Os campos
+de liquidacao so vem com o titulo `LIQUIDADO` e o motivo so com ele `BAIXADO`. Codigo do banco
+fora da tabela vira `OUTRO`; campo ausente fica `None`. `valor_juros_multa` soma juros e multa so
+quando o banco os separa em dois campos oficiais.
+
+C = consulta (`consultar_titulo`), W = webhook (`parse_webhook`), - = o banco nao informa ou a
+fonte oficial nao basta.
+
+| Banco | Canal | Credito | Tarifa | Juros e multa | Desconto | Abatimento | Motivo da baixa | Fonte |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Banco do Brasil | C | C | - | C | C | C | C | OpenAPI Cobrancas 3.2.2 (`codigoTipoLiquidacao`, `dataCreditoLiquidacao`, `valorJuroMoraRecebido` + `valorMultaRecebido`, `valorDescontoUtilizado`, `valorAbatimentoTotal`, `codigoTipoBaixaTitulo`) |
+| Bradesco | C (so 62 cartorio e 51 Pix no hibrido) | - | - | - | - | - | C | Tabela 1 de status dos manuais 1.6.4 e com QR Code 1.0.5 (`codStatus`) |
+| Santander | C, W | C, W | - | W | C | C | - | OpenAPI 1.0.0 (`settlementData`) e guia oficial (status Liquidado = linha digitavel; webhook `paymentType`, `creditDate`, `interestValue` + `fine`) |
+| Inter | C, W | - | - | - | - | - | C | OpenAPI da Cobranca v3 no portal (`origemRecebimento` na consulta e no callback, `motivoCancelamento` na consulta) |
+| Banrisul | - | C | C | C | C | C | - | OpenAPI da API Cobranca 1.6.1 (`titulo.operacoes`) |
+| Sicoob | - | - | - | - | - | C | - | Swagger v3 3.0.8.0 (`valorAbatimento`) |
+| Sicredi | - | C (previsto) | - | C | C | C | - | OpenAPI publico da Cobranca 3.9.1 (`dadosLiquidacao`, `dataPrevisaoPagamento`) |
+| C6 | C, W | C | - | - | - | - | - | bankslip-v2-api 1.2.0 e webhook-api (`payment_type`/`payment_method`, `credit_date`) |
+| Unicred | W | W | W | W | W | W | C, W | Paginas do portal (`docs/unicred-duvidas.md`): webhook `pagamento`, `credito`, `tarifa`, `codigoSituacao`; consulta `motivo` |
+| Pix BACEN | C, W | - | - | C, W | C, W | C, W | C | `openapi.yaml` da API Pix do BACEN (`pix[].componentesValor`, status `REMOVIDA_*`) |
+| Asaas | - | C, W | - | C, W | - | - | - | OpenAPI v3 (`creditDate`, `interestValue`) |
+
+Sem detalhe: Itau (a especificacao exige login; so ha fonte de terceiros), Caixa (os textos de
+situacao vem do ACBr e `CANAL_PAGAMENTO` e texto livre sem dominio no XSD), BTG (sem tabela de
+`paymentMethod` e `settledAt` e data de liquidacao, nao de credito), Safra (sem fonte oficial) e
+PinBank (a doc oficial publica nao diz se juros e multa sao os pagos, e o webhook ainda nao e
+tratado). Ficaram de fora tambem: a tarifa do Santander (`settlementDutyValue` sem descricao) e o
+desconto e o abatimento do webhook dele (guia e OpenAPI trocam os nomes), o canal do Sicredi (vem
+na `situacao` detalhada, que a tabela de status ainda nao traduz), o canal do Banrisul e o motivo da
+baixa onde o banco nao da o texto (Santander) ou nao descreve o codigo (Inter `EXPIRADO`, BB 90
+"baixa automatica", que vira `OUTRO`). Nada disso foi validado contra banco real.
+
 ## Pagamento e extrato
 
 `brbank.pagamento` define o contrato opcional `AdapterPagamento` (capacidades
@@ -77,6 +117,15 @@ linha se acompanha por `consultar_pagamento` ou webhook. Linha sem resposta no e
 pagamento que executa na hora volta `INDETERMINADO` (pode ter sido pago: conferir antes de
 reenviar) e as seguintes nao saem (`RECUSADO`, motivo `NAO_ENVIADO`). As chamadas que movem
 dinheiro sem chave de idempotencia no banco saem sem retry automatico.
+
+**Aprovacao no canal do banco** (0.0.14): `StatusPagamento.AGUARDANDO_APROVACAO` e o pagamento
+aceito que espera alguem da empresa aprovar no internet banking, fora da API (nao e final, nada foi
+pago); `StatusPagamento.EXPIRADO` e o que nao foi aprovado no prazo e nao sera pago (final, como
+`CANCELADO`, e entra como final em `status_lote_local`). Hoje so o Inter os devolve: `APROVACAO`,
+`AGUARDANDO_APROVACAO` e `APROVACAO_EXPIRADA` do OpenAPI do Banking, que ate a 0.0.13 viravam
+`ACEITO` e `CANCELADO`. Quem consome a biblioteca e trata estado desconhecido de forma conservadora
+continua seguro: o pagamento do Inter que antes vinha `ACEITO` ou `CANCELADO` passa a ficar
+pendente de decisao ate o consumidor conhecer os estados novos.
 
 | Banco | Adapter (`brbank.adapters_pagamento`) | Tipos | Lote | Validacao |
 | --- | --- | --- | --- | --- |

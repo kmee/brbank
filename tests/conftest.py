@@ -41,6 +41,23 @@ def fazer_titulo(chave: str = "chave-1", valor: str = "150.00") -> Titulo:
     )
 
 
+CAMPOS_DETALHE = (
+    "canal_liquidacao",
+    "data_credito",
+    "valor_tarifa",
+    "valor_juros_multa",
+    "valor_desconto",
+    "valor_abatimento",
+    "motivo_baixa",
+)
+
+
+def assert_sem_detalhe(registro) -> None:
+    """Resposta sem o detalhe da liquidacao: todos os campos ficam None."""
+    preenchidos = {c: getattr(registro, c) for c in CAMPOS_DETALHE}
+    assert preenchidos == dict.fromkeys(CAMPOS_DETALHE)
+
+
 @pytest.fixture
 def titulo() -> Titulo:
     return fazer_titulo()

@@ -48,11 +48,14 @@ from brbank.capacidades import Capacidade
 from brbank.erros import Duplicado, NaoSuportado, Validacao
 from brbank.mascara import mascarar
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
+    MotivoBaixa,
     Pessoa,
     Titulo,
     TituloRegistrado,
+    somar_informados,
 )
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte, contexto_tls
@@ -287,6 +290,34 @@ def _dinheiro(valor: Any) -> Decimal:
         return Decimal(str(valor))
     except (InvalidOperation, ValueError) as exc:
         raise Validacao("valor monetario invalido na resposta do PSP") from exc
+
+
+def _componente(pix: dict[str, Any], nome: str) -> Decimal | None:
+    componentes = pix.get("componentesValor")
+    item = componentes.get(nome) if isinstance(componentes, dict) else None
+    valor = item.get("valor") if isinstance(item, dict) else None
+    return None if valor in (None, "") else _dinheiro(valor)
+
+
+def _detalhe_pix(pagos: list[dict[str, Any]]) -> dict[str, Any]:
+    """Detalhe da liquidacao a partir do `componentesValor` de cada Pix.
+
+    Schema `Pix` da API Pix do BACEN: juros, multa, desconto e abatimento so
+    vem na cobranca com vencimento, e com mais de um Pix no txid soma por item.
+    O canal e o proprio trilho. Data de credito e tarifa nao existem na API.
+    """
+
+    def total(*nomes: str) -> Decimal | None:
+        return somar_informados(
+            *(_componente(p, nome) for p in pagos for nome in nomes)
+        )
+
+    return {
+        "canal_liquidacao": CanalLiquidacao.PIX,
+        "valor_juros_multa": total("juros", "multa"),
+        "valor_desconto": total("desconto"),
+        "valor_abatimento": total("abatimento"),
+    }
 
 
 def _instante(valor: str | None) -> datetime | None:
@@ -542,6 +573,15 @@ class PixBacenAdapter(BankAdapter):
         status = self.tabela_status.traduzir(dados.get("status"))
         valor_pago = None
         data_pagamento = None
+        detalhe: dict[str, Any] = {}
+        if status is StatusCanonico.BAIXADO:
+            # Enum oficial: removida a pedido do recebedor ou pelo PSP (sem dizer
+            # o porque; pode ser expiracao, ver docs/pix-duvidas.md).
+            detalhe["motivo_baixa"] = (
+                MotivoBaixa.SOLICITACAO
+                if str(dados.get("status") or "").upper() == REMOVIDA_PELO_RECEBEDOR
+                else MotivoBaixa.OUTRO
+            )
         if status is StatusCanonico.LIQUIDADO:
             pagos = [p for p in dados.get("pix") or [] if isinstance(p, dict)]
             if not pagos:
@@ -553,6 +593,7 @@ class PixBacenAdapter(BankAdapter):
             valor_pago = sum((_dinheiro(p.get("valor")) for p in pagos), Decimal(0))
             horarios = [h for h in (_instante(p.get("horario")) for p in pagos) if h]
             data_pagamento = max(horarios).date() if horarios else None
+            detalhe = _detalhe_pix(pagos)
         # O id e sempre o txid pedido (deterministico pela chave de idempotencia):
         # o sandbox do Sicoob devolve outro txid, aleatorio, no corpo.
         return TituloRegistrado(
@@ -565,6 +606,7 @@ class PixBacenAdapter(BankAdapter):
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
             resposta_bruta=dados,
+            **detalhe,
         )
 
     # --- operacoes ----------------------------------------------------------
@@ -686,6 +728,7 @@ class PixBacenAdapter(BankAdapter):
                 ocorrido_em=_instante(item.get("horario")),
                 valor_pago=_dinheiro(item["valor"]) if item.get("valor") else None,
                 resposta_bruta=mascarar(item),
+                **_detalhe_pix([item]),
             )
             vistos.setdefault(evento.chave_dedup, evento)
         return list(vistos.values())

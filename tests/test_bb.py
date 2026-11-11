@@ -5,10 +5,12 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
     Indisponivel,
     Instrucao,
+    MotivoBaixa,
     NaoSuportado,
     StatusCanonico,
     TipoInstrucao,
@@ -17,7 +19,7 @@ from brbank import (
 )
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
 from tests.bb_falso import CHAVE_DEV, BBFalso
-from tests.conftest import fazer_titulo
+from tests.conftest import assert_sem_detalhe, fazer_titulo
 
 
 def config(**extra) -> BBConfig:
@@ -184,6 +186,71 @@ async def test_consulta_detalhada_e_data_de_pagamento(adapter, falso):
     assert c.status is StatusCanonico.LIQUIDADO
     assert c.valor_pago == Decimal("150.00")
     assert c.data_pagamento == date(2026, 11, 10)
+    # A resposta nao trouxe o detalhe da liquidacao: nada e inventado.
+    assert_sem_detalhe(c)
+
+
+async def test_detalhe_da_liquidacao(adapter, falso):
+    # Campos de GET /boletos/{id} no OpenAPI Cobrancas 3.2.2 do BB.
+    r = await adapter.registrar_titulo(titulo_numerico())
+    falso.liquidar(r.id_banco)
+    falso.boletos[r.id_banco].update(
+        codigoTipoLiquidacao=4,
+        dataCreditoLiquidacao="11.11.2026",
+        valorJuroMoraRecebido=1.5,
+        valorMultaRecebido=3,
+        valorDescontoUtilizado=0,
+        valorAbatimentoTotal=2.25,
+        valorCreditoCedente=148.0,
+    )
+    c = await adapter.consultar_titulo(r.id_banco)
+    assert c.canal_liquidacao is CanalLiquidacao.PIX
+    assert c.data_credito == date(2026, 11, 11)
+    assert c.valor_juros_multa == Decimal("4.50")
+    assert c.valor_desconto == Decimal("0.00")
+    assert c.valor_abatimento == Decimal("2.25")
+    # O OpenAPI nao tem campo de tarifa; o creditado nao vira tarifa por conta.
+    assert c.valor_tarifa is None
+    assert c.motivo_baixa is None
+
+
+@pytest.mark.parametrize(
+    ("codigo", "canal"),
+    [
+        (1, CanalLiquidacao.CODIGO_BARRAS),
+        (2, CanalLiquidacao.CODIGO_BARRAS),
+        (3, CanalLiquidacao.CARTORIO),
+        (8, CanalLiquidacao.CODIGO_BARRAS),
+        (5, CanalLiquidacao.OUTRO),
+        (0, None),
+    ],
+)
+async def test_canal_da_liquidacao(adapter, falso, codigo, canal):
+    r = await adapter.registrar_titulo(titulo_numerico())
+    falso.liquidar(r.id_banco)
+    falso.boletos[r.id_banco]["codigoTipoLiquidacao"] = codigo
+    assert (await adapter.consultar_titulo(r.id_banco)).canal_liquidacao is canal
+
+
+@pytest.mark.parametrize(
+    ("codigo", "motivo"),
+    [
+        (1, MotivoBaixa.SOLICITACAO),
+        (11, MotivoBaixa.SOLICITACAO),
+        (13, MotivoBaixa.DECURSO_PRAZO),
+        (15, MotivoBaixa.PROTESTO),
+        (90, MotivoBaixa.OUTRO),
+        (None, None),
+    ],
+)
+async def test_motivo_da_baixa(adapter, falso, codigo, motivo):
+    r = await adapter.registrar_titulo(titulo_numerico())
+    await adapter.baixar_titulo(r.id_banco)
+    falso.boletos[r.id_banco]["codigoTipoBaixaTitulo"] = codigo
+    c = await adapter.consultar_titulo(r.id_banco)
+    assert c.status is StatusCanonico.BAIXADO
+    assert c.motivo_baixa is motivo
+    assert c.canal_liquidacao is None
 
 
 async def _consultar_url(adapter, falso, r):

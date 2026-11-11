@@ -43,6 +43,7 @@ from brbank.modelos import (
     TipoInstrucao,
     Titulo,
     TituloRegistrado,
+    somar_informados,
 )
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.transporte import LimitadorTaxa, PoliticaRetry, Transporte
@@ -323,6 +324,22 @@ class SicrediAdapter(BankAdapter):
         status = self.tabela_status.traduzir(_normalizar(dados.get("situacao")))
         liquidado = status is StatusCanonico.LIQUIDADO
         liquidacao = dados.get("dadosLiquidacao") or {}
+        detalhe: dict[str, Any] = {}
+        if liquidado:
+            # OpenAPI publico da Cobranca Sicredi 3.9.1 (developers.sicredi.com.br
+            # /public): `dadosLiquidacao` traz juros, multa, desconto e abatimento
+            # do pagamento; `dataPrevisaoPagamento` e a "data prevista de credito
+            # na conta do beneficiario". O canal vem na `situacao` ("LIQUIDADO
+            # PIX"...), que a tabela de status ainda nao conhece.
+            detalhe = {
+                "data_credito": _data(dados.get("dataPrevisaoPagamento")),
+                "valor_juros_multa": somar_informados(
+                    _dinheiro(liquidacao.get("juros")),
+                    _dinheiro(liquidacao.get("multa")),
+                ),
+                "valor_desconto": _dinheiro(liquidacao.get("desconto")),
+                "valor_abatimento": _dinheiro(liquidacao.get("abatimento")),
+            }
         return TituloRegistrado(
             banco=self.banco,
             id_banco=id_banco,
@@ -340,6 +357,7 @@ class SicrediAdapter(BankAdapter):
                 else None
             ),
             resposta_bruta=dados,
+            **detalhe,
         )
 
     async def _patch(

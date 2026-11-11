@@ -46,6 +46,7 @@ from brbank.modelos import (
     TipoInstrucao,
     Titulo,
     TituloRegistrado,
+    somar_informados,
 )
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.tempo import hoje_brasil
@@ -205,6 +206,32 @@ def _data(texto: Any) -> date | None:
         return date.fromisoformat(str(texto)[:10])
     except ValueError as exc:
         raise Validacao("data ilegivel na resposta do Banrisul") from exc
+
+
+def _detalhe_liquidacao(operacoes: dict[str, Any]) -> dict[str, Any]:
+    """Detalhe da liquidacao no bloco `operacoes` (OpenAPI da API Cobranca 1.6.1).
+
+    Juros: `valor_juros_recebido` no schema, `valor_juros` no exemplo oficial de
+    liquidado; vale o que vier. Tarifa: so as da liquidacao
+    (`tarifa_baixa_liquidacao` e `tarifa_interbancaria`); as de registro,
+    cartorio e manutencao, e o agrupado `tarifas_diversas`, ficam na resposta
+    bruta. O canal nao vem na consulta.
+    """
+    juros = operacoes.get("valor_juros_recebido")
+    if juros is None:
+        juros = operacoes.get("valor_juros")
+    return {
+        "data_credito": _data(operacoes.get("data_credito")),
+        "valor_juros_multa": somar_informados(
+            _dinheiro(juros), _dinheiro(operacoes.get("valor_multa_recebido"))
+        ),
+        "valor_desconto": _dinheiro(operacoes.get("valor_desconto_utilizado")),
+        "valor_abatimento": _dinheiro(operacoes.get("valor_abatimento_utilizado")),
+        "valor_tarifa": somar_informados(
+            _dinheiro(operacoes.get("tarifa_baixa_liquidacao")),
+            _dinheiro(operacoes.get("tarifa_interbancaria")),
+        ),
+    }
 
 
 def _endereco(pessoa: Pessoa, papel: str) -> tuple[str, str]:
@@ -476,10 +503,12 @@ class BanrisulAdapter(BankAdapter):
         t = self._titulo(resp)
         status = self.tabela_status.traduzir(self._codigo_status(t))
         valor_pago, data_pagamento = None, None
+        detalhe: dict[str, Any] = {}
         if status is StatusCanonico.LIQUIDADO:
             operacoes = t.get("operacoes")
             if not isinstance(operacoes, dict):
                 operacoes = {}
+            detalhe = _detalhe_liquidacao(operacoes)
             # `valor_cobrado` e o que o pagador pagou (inclui juros); o
             # `valor_pagamento` da doc pode vir sem o acrescimo. Ver duvidas.
             valor_pago = _dinheiro(operacoes.get("valor_cobrado"))
@@ -500,6 +529,7 @@ class BanrisulAdapter(BankAdapter):
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
             resposta_bruta=t,
+            **detalhe,
         )
 
     async def enviar_instrucao(

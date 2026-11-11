@@ -19,7 +19,7 @@ from brbank import (
     criar_adapter,
 )
 from brbank.adapters.sicredi import SicrediAdapter, SicrediConfig
-from tests.conftest import CPF_VALIDO, fazer_titulo
+from tests.conftest import CPF_VALIDO, assert_sem_detalhe, fazer_titulo
 from tests.sicredi_falso import CHAVE_API, SicrediFalso
 
 
@@ -223,6 +223,26 @@ async def test_consulta_liquidada_traz_valor_e_data(dormir):
     assert consulta.status is StatusCanonico.LIQUIDADO
     assert consulta.valor_pago == Decimal("150.00")
     assert consulta.data_pagamento == date(2026, 11, 10)
+    # dadosLiquidacao sem encargos e sem previsao de credito: nada inventado.
+    assert_sem_detalhe(consulta)
+
+
+async def test_consulta_liquidada_traz_o_detalhe(dormir):
+    # `dadosLiquidacao` e `dataPrevisaoPagamento` do OpenAPI publico 3.9.1.
+    adapter, falso = montar(dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo(valor="150.00"))
+    falso.liquidar(reg.id_banco)
+    boleto = falso.boletos[reg.id_banco]
+    boleto["dataPrevisaoPagamento"] = "2026-11-11"
+    boleto["dadosLiquidacao"].update(juros=1.1, multa=3.0, desconto=0.5, abatimento=2.0)
+    consulta = await adapter.consultar_titulo(reg.id_banco)
+    assert consulta.data_credito == date(2026, 11, 11)
+    assert consulta.valor_juros_multa == Decimal("4.10")
+    assert consulta.valor_desconto == Decimal("0.50")
+    assert consulta.valor_abatimento == Decimal("2.00")
+    # O canal vem na situacao detalhada, que a tabela ainda nao traduz.
+    assert consulta.canal_liquidacao is None
+    assert consulta.valor_tarifa is None
 
 
 async def test_consulta_mascara_pii_na_resposta_bruta(dormir):

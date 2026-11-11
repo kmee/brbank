@@ -5,10 +5,12 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
     Indisponivel,
     Instrucao,
+    MotivoBaixa,
     NaoSuportado,
     StatusCanonico,
     TipoInstrucao,
@@ -16,7 +18,7 @@ from brbank import (
     obter_classe,
 )
 from brbank.adapters.inter import InterAdapter, InterConfig
-from tests.conftest import fazer_titulo
+from tests.conftest import assert_sem_detalhe, fazer_titulo
 from tests.inter_falso import InterFalso
 
 
@@ -82,6 +84,64 @@ async def test_consulta_traz_pix_e_boleto(adapter, falso):
     assert c.valor_pago is None
 
 
+@pytest.mark.parametrize(
+    ("origem", "canal"),
+    [
+        ("BOLETO", CanalLiquidacao.CODIGO_BARRAS),
+        ("PIX", CanalLiquidacao.PIX),
+        ("OUTRA", CanalLiquidacao.OUTRO),
+        (None, None),
+    ],
+)
+async def test_consulta_paga_traz_o_canal(adapter, falso, origem, canal):
+    # OrigemRecebimentoEnum (BOLETO, PIX) do OpenAPI da Cobranca v3.
+    r = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(r.id_banco)
+    falso.cobrancas[r.id_banco]["origemRecebimento"] = origem
+    c = await adapter.consultar_titulo(r.id_banco)
+    assert c.status is StatusCanonico.LIQUIDADO
+    assert c.canal_liquidacao is canal
+    # A Cobranca v3 nao informa credito, tarifa nem encargos pagos.
+    assert c.data_credito is None
+    assert c.valor_tarifa is None
+    assert c.valor_juros_multa is None
+
+
+@pytest.mark.parametrize(
+    ("motivo", "esperado"),
+    [
+        ("APEDIDODOCLIENTE", MotivoBaixa.SOLICITACAO),
+        ("SUBSTITUICAO", MotivoBaixa.OUTRO),
+        (None, None),
+    ],
+)
+async def test_cancelada_traz_o_motivo(adapter, falso, motivo, esperado):
+    r = await adapter.registrar_titulo(fazer_titulo())
+    falso.cobrancas[r.id_banco].update(situacao="CANCELADO", motivoCancelamento=motivo)
+    c = await adapter.consultar_titulo(r.id_banco)
+    assert c.status is StatusCanonico.BAIXADO
+    assert c.motivo_baixa is esperado
+    assert c.canal_liquidacao is None
+
+
+def test_webhook_traz_o_canal():
+    # CallbackCobranca da Cobranca v3: origemRecebimento no callback de pago.
+    adapter = InterAdapter(InterConfig(conta="c", client_id="i", client_secret="s"))
+    (evento,) = adapter.parse_webhook(
+        [
+            {
+                "codigoSolicitacao": "a",
+                "situacao": "RECEBIDO",
+                "dataHoraSituacao": "2026-11-10T10:00:00",
+                "valorTotalRecebido": "150.00",
+                "origemRecebimento": "PIX",
+            }
+        ]
+    )
+    assert evento.canal_liquidacao is CanalLiquidacao.PIX
+    assert evento.motivo_baixa is None
+
+
 async def test_resposta_bruta_nao_guarda_pii(adapter, falso):
     r = await adapter.registrar_titulo(fazer_titulo())
     c = await adapter.consultar_titulo(r.id_banco)
@@ -140,6 +200,9 @@ def test_parse_webhook_lista_e_dedup():
     assert a.valor_pago == Decimal("10.5")
     assert a.resposta_bruta["nome"] == "***"
     assert b.tipo is StatusCanonico.BAIXADO
+    # Sem origemRecebimento nem motivoCancelamento: sem detalhe.
+    assert_sem_detalhe(a)
+    assert_sem_detalhe(b)
     with pytest.raises(Validacao):
         adapter.parse_webhook(b"nao e json")
     with pytest.raises(Validacao):

@@ -7,11 +7,13 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
     Endereco,
     Indisponivel,
     Instrucao,
+    MotivoBaixa,
     NaoSuportado,
     Pessoa,
     StatusCanonico,
@@ -26,7 +28,7 @@ from brbank.adapters.unicred import (
     decifrar_webhook,
 )
 from brbank.transporte import PoliticaRetry
-from tests.conftest import CNPJ_VALIDO, endereco, fazer_titulo
+from tests.conftest import CNPJ_VALIDO, assert_sem_detalhe, endereco, fazer_titulo
 from tests.unicred_falso import (
     API_KEY,
     BASE,
@@ -396,12 +398,93 @@ def test_webhook_oficial_de_liquidacao():
     assert bruta["uuidRequisicaoWebhook"] == "d5f776e0-b80b-4883-8b56-d5ad1c4e7ef8"
     assert "Grafica" not in str(bruta)
     assert "84227798035" not in str(bruta)
+    # Grupos pagamento, credito e tarifa do vetor oficial.
+    assert evento.data_credito == date(2024, 8, 21)
+    assert evento.valor_tarifa == Decimal("1.29")
+    assert evento.valor_juros_multa == Decimal("0.00")
+    assert evento.valor_desconto == Decimal("0.00")
+    assert evento.valor_abatimento == Decimal("0.00")
+    # O vetor traz o canal "3", fora da tabela de canais (161 a 334).
+    assert evento.canal_liquidacao is CanalLiquidacao.OUTRO
+    assert evento.motivo_baixa is None
 
 
 def test_webhook_oficial_de_remessa_confirmada():
     (evento,) = _adapter_homolog().parse_webhook(CENARIO_REMESSA.encode())
     assert evento.tipo is StatusCanonico.REGISTRADO
     assert evento.valor_pago is None
+    # A remessa traz tarifa (de registro), mas nao e liquidacao: nada vem.
+    assert_sem_detalhe(evento)
+
+
+@pytest.mark.parametrize(
+    ("canal", "esperado"),
+    [
+        ("333", CanalLiquidacao.PIX),
+        ("308", CanalLiquidacao.CARTORIO),
+        ("161", CanalLiquidacao.OUTRO),
+    ],
+)
+def test_webhook_canal_da_liquidacao(canal, esperado):
+    dados = {
+        "codigoMovimento": "06",
+        "titulo": {"uuidTitulo": "t1", "codigoSituacao": "03"},
+        "pagamento": {
+            "codigoCanalLiquidacao": canal,
+            "dataLiquidacao": "2026-11-10",
+            "valorRecebido": 152.0,
+            "valorMora": 2.0,
+        },
+    }
+    corpo = cifrar_webhook(dados, CHAVE_AUT, CHAVE_CRIPTO)
+    (evento,) = UnicredAdapter(_config()).parse_webhook(corpo)
+    assert evento.canal_liquidacao is esperado
+    assert evento.valor_juros_multa == Decimal("2.0")
+    # Sem os grupos credito e tarifa, sem data de credito nem tarifa.
+    assert evento.data_credito is None
+    assert evento.valor_tarifa is None
+    assert evento.valor_desconto is None
+
+
+@pytest.mark.parametrize(
+    ("situacao", "motivo"),
+    [
+        ("02", MotivoBaixa.SOLICITACAO),
+        ("05", MotivoBaixa.DECURSO_PRAZO),
+        ("06", MotivoBaixa.PROTESTO),
+        ("08", MotivoBaixa.OUTRO),
+    ],
+)
+def test_webhook_motivo_da_baixa(situacao, motivo):
+    dados = {
+        "codigoMovimento": "02",
+        "codigoInstrucaoOrigem": "02",
+        "titulo": {"uuidTitulo": "t1", "codigoSituacao": situacao},
+    }
+    corpo = cifrar_webhook(dados, CHAVE_AUT, CHAVE_CRIPTO)
+    (evento,) = UnicredAdapter(_config()).parse_webhook(corpo)
+    assert evento.tipo is StatusCanonico.BAIXADO
+    assert evento.motivo_baixa is motivo
+
+
+@pytest.mark.parametrize(
+    ("motivo", "esperado"),
+    [
+        ("DECURSO_PRAZO", MotivoBaixa.DECURSO_PRAZO),
+        ("PROTESTADO", MotivoBaixa.PROTESTO),
+        ("NULL", None),
+        (None, None),
+    ],
+)
+async def test_consulta_motivo_da_baixa(adapter, falso, motivo, esperado):
+    # "Dominio do Motivo" da consulta de status: diz respeito ao BAIXADO.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    titulo = falso.titulos[registrado.id_banco]
+    titulo.update(status="BAIXADO", motivo=motivo)
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.status is StatusCanonico.BAIXADO
+    assert consultado.motivo_baixa is esperado
+    assert consultado.canal_liquidacao is None
 
 
 def test_webhook_x_api_key_errado_ou_ausente():

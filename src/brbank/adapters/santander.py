@@ -58,12 +58,14 @@ from brbank.documento import normalizar_documento
 from brbank.erros import Duplicado, Indisponivel, NaoSuportado, Validacao
 from brbank.mascara import MASCARA
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
     Pessoa,
     TipoInstrucao,
     Titulo,
     TituloRegistrado,
+    somar_informados,
 )
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.tempo import hoje_brasil
@@ -107,6 +109,15 @@ TABELA_WEBHOOK = TabelaStatus.criar(
 # O guia oficial diz que o status Baixado indica "pagamento via PIX" no complemento
 # ou na descricao da baixa, sem dar o texto. O ACBr traz "BAIXA DE PAGAMENTO VIA PIX".
 INDICACAO_BAIXA_PIX = "PAGAMENTO VIA PIX"
+
+# `paymentType` do webhook (guia oficial): SANTANDER, OUTROS BANCOS ou PIX. O
+# guia diz que o webhook so avisa pagamento por codigo de barras/linha digitavel
+# ou pelo QR do Pix.
+CANAIS_WEBHOOK = {
+    "PIX": CanalLiquidacao.PIX,
+    "SANTANDER": CanalLiquidacao.CODIGO_BARRAS,
+    "OUTROS BANCOS": CanalLiquidacao.CODIGO_BARRAS,
+}
 
 # Sigla -> `documentKind` (enum oficial). Ficam de fora BOLETO_CARTAO_CREDITO,
 # BOLETO_PROPOSTA e BOLETO_DEPOSITO_APORTE, que exigem outro tipo de pagamento.
@@ -681,14 +692,32 @@ class SantanderAdapter(BankAdapter):
         baixa = _primeiro_item(liquidacao, "writeOffData") or _primeiro_item(
             dados, "writeOffData"
         )
-        if status is StatusCanonico.BAIXADO and (
+        detalhe: dict[str, Any] = {}
+        if status is StatusCanonico.LIQUIDADO:
+            # Guia: "Liquidado" e o boleto pago pela linha digitavel ou codigo de
+            # barras; o pago pelo QR do Pix aparece como Baixado (abaixo).
+            detalhe["canal_liquidacao"] = CanalLiquidacao.CODIGO_BARRAS
+        elif status is StatusCanonico.BAIXADO and (
             _baixa_por_pix(dados.get("statusComplement"))
             or _baixa_por_pix(baixa.get("writeOffDescription"))
         ):
             status = StatusCanonico.LIQUIDADO
+            detalhe["canal_liquidacao"] = CanalLiquidacao.PIX
         valor_pago, data_pagamento = None, None
         if status is StatusCanonico.LIQUIDADO:
-            # O valor creditado vem liquido da tarifa: para conciliar vale o pago.
+            # Para conciliar vale o pago. O `settlementCreditedValue` e o valor
+            # creditado, e a doc nao diz o que o separa do pago (no exemplo
+            # oficial sao iguais); `settlementDutyValue` nao tem descricao, entao
+            # a tarifa fica None.
+            detalhe.update(
+                data_credito=_data(acerto.get("settlementCreditDate")),
+                valor_desconto=_dinheiro(acerto.get("discountValue"))
+                if "discountValue" in acerto
+                else _dinheiro(dados.get("discountValue")),
+                valor_abatimento=_dinheiro(acerto.get("deductionValue"))
+                if "deductionValue" in acerto
+                else _dinheiro(dados.get("deductionValue")),
+            )
             valor_pago = (
                 _dinheiro(dados.get("paidValue"))
                 or _dinheiro(acerto.get("settlementValue"))
@@ -731,6 +760,7 @@ class SantanderAdapter(BankAdapter):
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
             resposta_bruta=_sem_pii(bruta),
+            **detalhe,
         )
 
     async def _instruir(self, id_banco: str, campos: dict[str, Any]) -> Any:
@@ -874,6 +904,23 @@ class SantanderAdapter(BankAdapter):
         for nome, valor in (cabecalhos or {}).items():
             if nome.lower() == "notification-uuid":
                 bruta["notification-uuid"] = valor
+        detalhe: dict[str, Any] = {}
+        if tipo is StatusCanonico.LIQUIDADO:
+            # Guia do webhook: deductionValue e "desconto concedido" e rebateValue
+            # "abatimento concedido", o contrario do OpenAPI. Com as fontes em
+            # conflito, desconto e abatimento ficam None (a consulta os traz).
+            tipo_pagamento = str(item.get("paymentType") or "").strip().upper()
+            detalhe = {
+                "canal_liquidacao": (
+                    CANAIS_WEBHOOK.get(tipo_pagamento, CanalLiquidacao.OUTRO)
+                    if tipo_pagamento
+                    else None
+                ),
+                "data_credito": _data(item.get("creditDate")),
+                "valor_juros_multa": somar_informados(
+                    _dinheiro(item.get("interestValue")), _dinheiro(item.get("fine"))
+                ),
+            }
         return EventoCanonico(
             banco=self.banco,
             referencia=referencia,
@@ -885,4 +932,5 @@ class SantanderAdapter(BankAdapter):
                 else None
             ),
             resposta_bruta=bruta,
+            **detalhe,
         )

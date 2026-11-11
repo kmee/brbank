@@ -24,7 +24,7 @@ from brbank.adapters.banrisul import (
     dv_nosso_numero,
 )
 from tests.banrisul_falso import BENEFICIARIO, PDF, BanrisulFalso
-from tests.conftest import fazer_titulo
+from tests.conftest import assert_sem_detalhe, fazer_titulo
 
 
 def _config(**extra) -> BanrisulConfig:
@@ -300,6 +300,41 @@ async def test_consulta_liquidada(adapter, falso):
     assert consultado.status is StatusCanonico.LIQUIDADO
     assert consultado.valor_pago == Decimal("160.00")
     assert consultado.data_pagamento == date(2026, 12, 10)
+    # Exemplo oficial "Liquidado": data_credito e valor_juros (sem multa).
+    assert consultado.data_credito == date(2026, 12, 11)
+    assert consultado.valor_juros_multa == Decimal("10.00")
+    assert consultado.valor_tarifa is None
+    assert consultado.canal_liquidacao is None
+
+
+async def test_detalhe_das_operacoes_no_schema_oficial(adapter, falso):
+    # `titulo.operacoes` do OpenAPI da API Cobranca 1.6.1.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    operacoes = falso.boletos[registrado.id_banco]["operacoes"]
+    del operacoes["valor_juros"]
+    operacoes.update(
+        valor_juros_recebido="4.00",
+        valor_multa_recebido="3.00",
+        valor_desconto_utilizado="1.00",
+        valor_abatimento_utilizado="2.00",
+        tarifa_baixa_liquidacao="1.85",
+        tarifa_interbancaria="0.40",
+        tarifa_registro="0.90",
+        tarifas_diversas="2.25",
+    )
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.valor_juros_multa == Decimal("7.00")
+    assert consultado.valor_desconto == Decimal("1.00")
+    assert consultado.valor_abatimento == Decimal("2.00")
+    # So as tarifas da liquidacao; registro e o agrupado ficam de fora.
+    assert consultado.valor_tarifa == Decimal("2.25")
+
+
+async def test_pago_no_dia_sem_operacoes_fica_sem_detalhe(adapter, falso):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.boletos[registrado.id_banco]["situacao_pagamento"] = 2
+    assert_sem_detalhe(await adapter.consultar_titulo(registrado.id_banco))
 
 
 async def test_liquidado_sem_valor_cobrado_usa_valor_pagamento(adapter, falso):
