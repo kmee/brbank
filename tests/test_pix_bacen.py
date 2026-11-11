@@ -6,8 +6,10 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
+    MotivoBaixa,
     NaoSuportado,
     Orquestrador,
     StatusCanonico,
@@ -231,6 +233,43 @@ async def test_liquidacao_soma_pix_e_data():
     assert consultado.status is StatusCanonico.LIQUIDADO
     assert consultado.valor_pago == Decimal("150.00")
     assert consultado.data_pagamento == date(2026, 11, 10)
+    # O canal e o trilho; sem componentesValor, os encargos ficam None, e a
+    # API Pix nao tem data de credito nem tarifa.
+    assert consultado.canal_liquidacao is CanalLiquidacao.PIX
+    assert consultado.valor_juros_multa is None
+    assert consultado.valor_desconto is None
+    assert consultado.valor_abatimento is None
+    assert consultado.data_credito is None
+    assert consultado.valor_tarifa is None
+
+
+async def test_liquidacao_com_componentes_do_valor():
+    # Schema Pix.componentesValor da API Pix do BACEN (cobv), soma por Pix.
+    adapter, falso = montar()
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco, "153.00")
+    cob = falso.cobrancas[("cobv", registrado.id_banco)]
+    cob["pix"][0]["componentesValor"] = {
+        "original": {"valor": "150.00"},
+        "multa": {"valor": "3.00"},
+        "juros": {"valor": "2.00"},
+        "desconto": {"valor": "1.50"},
+        "abatimento": {"valor": "0.50"},
+    }
+    cob["pix"].append(
+        {
+            "endToEndId": "E124",
+            "txid": registrado.id_banco,
+            "valor": "1.00",
+            "horario": "2026-11-10T13:00:00.000Z",
+            "componentesValor": {"juros": {"valor": "1.00"}},
+        }
+    )
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.valor_juros_multa == Decimal("6.00")
+    assert consultado.valor_desconto == Decimal("1.50")
+    assert consultado.valor_abatimento == Decimal("0.50")
+    assert consultado.motivo_baixa is None
 
 
 async def test_concluida_sem_pix_nao_liquida():
@@ -255,6 +294,17 @@ async def test_baixar_manda_patch_e_devolve_baixado():
     baixado = await adapter.baixar_titulo(registrado.id_banco)
     assert baixado.status is StatusCanonico.BAIXADO
     assert falso.requisicoes[-1].method == "PATCH"
+    # REMOVIDA_PELO_USUARIO_RECEBEDOR, do enum oficial de status da cobranca.
+    assert baixado.motivo_baixa is MotivoBaixa.SOLICITACAO
+
+
+async def test_removida_pelo_psp_nao_diz_o_motivo():
+    adapter, falso = montar()
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.cobrancas[("cobv", registrado.id_banco)]["status"] = "REMOVIDA_PELO_PSP"
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.status is StatusCanonico.BAIXADO
+    assert consultado.motivo_baixa is MotivoBaixa.OUTRO
 
 
 async def test_instrucao_nao_suportada():
@@ -387,6 +437,28 @@ def test_parse_webhook_gera_evento_por_txid_e_dedup():
     assert evento.valor_pago == Decimal("10.00")
     assert evento.ocorrido_em.year == 2026
     assert "Maria" not in repr(evento.resposta_bruta)
+    assert evento.canal_liquidacao is CanalLiquidacao.PIX
+    assert evento.valor_juros_multa is None
+
+
+def test_parse_webhook_com_componentes_do_valor():
+    adapter, _ = montar()
+    corpo = {
+        "pix": [
+            {
+                "endToEndId": "E1",
+                "txid": "abc",
+                "valor": "102.00",
+                "componentesValor": {
+                    "original": {"valor": "100.00"},
+                    "juros": {"valor": "2.00"},
+                },
+            }
+        ]
+    }
+    (evento,) = adapter.parse_webhook(corpo)
+    assert evento.valor_juros_multa == Decimal("2.00")
+    assert evento.valor_desconto is None
 
 
 @pytest.mark.parametrize(

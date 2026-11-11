@@ -53,8 +53,10 @@ from brbank.capacidades import Capacidade
 from brbank.erros import Indisponivel, NaoSuportado, Validacao
 from brbank.mascara import MASCARA, mascarar
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
+    MotivoBaixa,
     Pessoa,
     TipoInstrucao,
     Titulo,
@@ -97,6 +99,22 @@ TABELA_SITUACAO_WEBHOOK = TabelaStatus.criar(
 )
 # `codigoMovimento` que o portal chama de liquidacao (o retorno "Parcial"):
 # pago em cartorio, liquidacao normal, em condicional e de titulo descontado.
+# Tabela Canais do webhook (`pagamento.codigoCanalLiquidacao`). Os demais (161
+# internet banking, 163 caixa, 166 compe...) sao o ponto de atendimento, sem
+# dizer se foi codigo de barras: viram OUTRO, como codigo fora da tabela.
+CANAIS_LIQUIDACAO = {"308": CanalLiquidacao.CARTORIO, "333": CanalLiquidacao.PIX}
+# Motivo da baixa: `titulo.codigoSituacao` do webhook e `motivo` da consulta.
+MOTIVOS_BAIXA_WEBHOOK = {
+    "02": MotivoBaixa.SOLICITACAO,
+    "05": MotivoBaixa.DECURSO_PRAZO,
+    "06": MotivoBaixa.PROTESTO,
+    "08": MotivoBaixa.OUTRO,
+}
+MOTIVOS_BAIXA_CONSULTA = {
+    "DECURSO_PRAZO": MotivoBaixa.DECURSO_PRAZO,
+    "PROTESTADO": MotivoBaixa.PROTESTO,
+}
+
 _MOVIMENTOS_LIQUIDACAO = frozenset({"01", "06", "07", "09"})
 _MOVIMENTO_REJEITADO = "03"
 _INSTRUCAO_REMESSA = "01"
@@ -287,6 +305,31 @@ def _data(valor: Any) -> date | None:
         return date.fromisoformat(valor[:10])
     except ValueError:
         return None
+
+
+def _grupo(dados: dict[str, Any], nome: str) -> dict[str, Any]:
+    grupo = dados.get(nome)
+    return grupo if isinstance(grupo, dict) else {}
+
+
+def _detalhe_liquidacao_webhook(dados: dict[str, Any]) -> dict[str, Any]:
+    """Grupos `pagamento`, `credito` e `tarifa` do movimento de liquidacao.
+
+    Dicionario do webhook no portal: `valorMora` e "juros/multa", o credito vem
+    "quando houver repasse", e a tarifa e a do proprio movimento.
+    """
+    pagamento = _grupo(dados, "pagamento")
+    canal = str(pagamento.get("codigoCanalLiquidacao") or "").strip()
+    return {
+        "canal_liquidacao": (
+            CANAIS_LIQUIDACAO.get(canal, CanalLiquidacao.OUTRO) if canal else None
+        ),
+        "data_credito": _data(_grupo(dados, "credito").get("dataCredito")),
+        "valor_tarifa": _dinheiro(_grupo(dados, "tarifa").get("valorTarifa")),
+        "valor_juros_multa": _dinheiro(pagamento.get("valorMora")),
+        "valor_desconto": _dinheiro(pagamento.get("valorDesconto")),
+        "valor_abatimento": _dinheiro(pagamento.get("valorAbatimento")),
+    }
 
 
 def _json(resp: httpx.Response) -> Any:
@@ -557,6 +600,13 @@ class UnicredAdapter(BankAdapter):
         # pagamentos (especie 31): nao e liquidacao.
         if status is StatusCanonico.LIQUIDADO:
             valor_pago, data_pagamento = _pagamento(dados)
+        # A consulta so traz o motivo da baixa ("Dominio do Motivo": DECURSO_PRAZO,
+        # PROTESTADO ou nulo); o resto do detalhe so vem no webhook.
+        motivo = None
+        if status is StatusCanonico.BAIXADO and dados.get("motivo"):
+            texto = str(dados["motivo"]).strip().upper()
+            if texto != "NULL":
+                motivo = MOTIVOS_BAIXA_CONSULTA.get(texto, MotivoBaixa.OUTRO)
         return TituloRegistrado(
             banco=self.banco,
             id_banco=id_banco,
@@ -567,6 +617,7 @@ class UnicredAdapter(BankAdapter):
             pix_copia_cola=dados.get("qrCodePix"),
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
+            motivo_baixa=motivo,
             resposta_bruta=_sem_pagador(dados),
         )
 
@@ -660,15 +711,20 @@ class UnicredAdapter(BankAdapter):
         pagamento = dados.get("pagamento")
         pagamento = pagamento if isinstance(pagamento, dict) else {}
         valor_pago, ocorrido = None, None
+        detalhe: dict[str, Any] = {}
         if movimento in _MOVIMENTOS_LIQUIDACAO:
             tipo = StatusCanonico.LIQUIDADO
             valor_pago = _dinheiro(pagamento.get("valorRecebido"))
             quando = _data(pagamento.get("dataLiquidacao"))
             ocorrido = datetime.combine(quando, hora()) if quando else None
+            detalhe = _detalhe_liquidacao_webhook(dados)
         elif movimento == _MOVIMENTO_REJEITADO and instrucao == _INSTRUCAO_REMESSA:
             tipo = StatusCanonico.REJEITADO
         else:
-            tipo = TABELA_SITUACAO_WEBHOOK.traduzir(titulo.get("codigoSituacao"))
+            situacao = titulo.get("codigoSituacao")
+            tipo = TABELA_SITUACAO_WEBHOOK.traduzir(situacao)
+            if tipo is StatusCanonico.BAIXADO:
+                detalhe["motivo_baixa"] = MOTIVOS_BAIXA_WEBHOOK.get(str(situacao))
         return [
             EventoCanonico(
                 banco=self.banco,
@@ -677,5 +733,6 @@ class UnicredAdapter(BankAdapter):
                 ocorrido_em=ocorrido,
                 valor_pago=valor_pago,
                 resposta_bruta=mascarar(_sem_pagador(dados)),
+                **detalhe,
             )
         ]

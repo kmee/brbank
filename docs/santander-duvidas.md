@@ -97,6 +97,8 @@ o ingles, uma traducao automatica).
 | Dias de baixa | ate 99 (notas 14 e 41) | ate 90 (OpenAPI, erro 3042) | ate 99; o banco recusa se valer 90 |
 | `environment` no sandbox | `PRODUCAO` (Postman) | o texto so descreve TESTE para o host de producao | `PRODUCAO` |
 | Ambiguidade de `documentNumber` | `x(14)` (tabela) | "campo numerico" (Nota 6) | texto; ver CNPJ alfanumerico |
+| Desconto e abatimento no webhook | `deductionValue` = "desconto concedido", `rebateValue` = "abatimento concedido" (guia do webhook) | `deductionValue` = abatimento, `rebateValue` = descontos (schema `Payment` do OpenAPI) | nenhum: no webhook ficam `None`; a consulta (`settlementData.discountValue` e `deductionValue`) os traz |
+| Tarifa da liquidacao | `settlementDutyValue` e `writeOffDutyValue` so aparecem no exemplo, sem descricao | o creditado (`settlementCreditedValue`) e igual ao liquidado no exemplo | `valor_tarifa` fica `None`; o comentario antigo de que o creditado vem liquido da tarifa nao tinha fonte |
 
 ## Decisoes do adapter sobre o que a fonte deixa aberto
 

@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
     Instrucao,
@@ -18,7 +19,7 @@ from brbank import (
 )
 from brbank.adapters.c6 import C6Adapter, C6Config, referencia_externa
 from tests.c6_falso import PDF, C6Falso
-from tests.conftest import fazer_titulo
+from tests.conftest import assert_sem_detalhe, fazer_titulo
 
 CHAVE_PIX = "123e4567-e89b-12d3-a456-426614174000"
 
@@ -234,6 +235,29 @@ async def test_consulta_liquidada_soma_pagamentos_da_listagem(adapter, falso):
         "due_date_from": "2026-12-10",
         "due_date_to": "2026-12-10",
     }
+    # Um pagamento por Pix e outro por boleto: nao cabem num canal so.
+    assert consultado.canal_liquidacao is None
+    # credit_date: "data em que o valor foi creditado na conta"; a mais recente.
+    assert consultado.data_credito == date(2026, 11, 11)
+    assert consultado.valor_tarifa is None
+    assert consultado.valor_juros_multa is None
+
+
+@pytest.mark.parametrize(
+    ("tipo", "canal"),
+    [
+        ("PIX", CanalLiquidacao.PIX),
+        ("BANK_SLIP", CanalLiquidacao.CODIGO_BARRAS),
+        ("OUTRO", CanalLiquidacao.OUTRO),
+    ],
+)
+async def test_canal_pelo_payment_type_da_listagem(adapter, falso, tipo, canal):
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    for pagamento in falso.pagamentos[registrado.id_banco]:
+        pagamento["payment_type"] = tipo
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.canal_liquidacao is canal
 
 
 async def test_consulta_usa_pagamentos_quando_vem_na_consulta(dormir):
@@ -348,6 +372,9 @@ def test_webhook_pagamento_com_information_aninhado(adapter):
     assert evento.ocorrido_em == datetime(
         2026, 4, 15, 20, 8, 35, 152525, tzinfo=timezone.utc
     )
+    # `information.payment_method` do webhook-api; credito so na listagem.
+    assert evento.canal_liquidacao is CanalLiquidacao.PIX
+    assert evento.data_credito is None
 
 
 def test_webhook_aguardando_e_criado(adapter):
@@ -366,6 +393,9 @@ def test_webhook_aguardando_e_criado(adapter):
     )
     assert [e.tipo for e in eventos] == [StatusCanonico.REGISTRADO] * 2
     assert all(e.valor_pago is None for e in eventos)
+    # Aguardando confirmacao nao e liquidacao: o canal fica de fora.
+    for evento in eventos:
+        assert_sem_detalhe(evento)
     assert "Maria" not in json.dumps(eventos[1].resposta_bruta)
 
 

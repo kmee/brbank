@@ -43,6 +43,7 @@ from brbank.auth import OAuth2ClientCredentials
 from brbank.capacidades import Capacidade
 from brbank.erros import NaoSuportado, Validacao
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
     Pessoa,
@@ -66,6 +67,19 @@ CARTEIRA_SANDBOX = "21"
 
 VALOR_MAXIMO = Decimal("5000000")
 SERVICO_WEBHOOK = "BANK_SLIP_PIX"
+
+# `payment_type` da listagem e `payment_method` do webhook (enum da bankslip-v2):
+# "por qual metodo a cobranca foi paga", segundo o guia de migracao.
+CANAIS_LIQUIDACAO = {
+    "BANK_SLIP": CanalLiquidacao.CODIGO_BARRAS,
+    "PIX": CanalLiquidacao.PIX,
+}
+
+
+def _canal(valor: Any) -> CanalLiquidacao | None:
+    texto = str(valor or "").strip().upper()
+    return CANAIS_LIQUIDACAO.get(texto, CanalLiquidacao.OUTRO) if texto else None
+
 
 TABELA_STATUS = TabelaStatus.criar(
     "2026.10",
@@ -332,6 +346,7 @@ class C6Adapter(BankAdapter):
         seu_numero: str | None = None,
         valor_pago: Decimal | None = None,
         data_pagamento: date | None = None,
+        **detalhe: Any,
     ) -> TituloRegistrado:
         meio = dados.get("payment_method") or {}
         boleto = meio.get("bank_slip") or {}
@@ -348,6 +363,7 @@ class C6Adapter(BankAdapter):
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
             resposta_bruta=_sem_pii(dados),
+            **detalhe,
         )
 
     async def registrar_titulo(self, titulo: Titulo) -> TituloRegistrado:
@@ -389,18 +405,35 @@ class C6Adapter(BankAdapter):
         dados = self._json(resp)
         status = self.tabela_status.traduzir(dados.get("status"))
         valor_pago, data_pagamento = None, None
+        detalhe: dict[str, Any] = {}
         if status is StatusCanonico.LIQUIDADO:
             pagamentos = dados.get("payments")
             if pagamentos is None:
                 pagamentos = await self._pagamentos(id_banco, dados.get("due_date"))
             valor_pago, data_pagamento = self._somar_pagamentos(pagamentos)
+            detalhe = self._detalhe_pagamentos(pagamentos)
         return self._registrado(
             dados,
             id_banco=id_banco,
             status=status,
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
+            **detalhe,
         )
+
+    @staticmethod
+    def _detalhe_pagamentos(pagamentos: list[dict[str, Any]]) -> dict[str, Any]:
+        """Canal e data de credito dos `payments[]` da listagem.
+
+        `credit_date` e "data em que o valor foi creditado na conta": vale a mais
+        recente. Pagamentos por canais diferentes nao cabem num canal so: None.
+        """
+        canais = {_canal(p.get("payment_type")) for p in pagamentos}
+        creditos = [d for d in (_data(p.get("credit_date")) for p in pagamentos) if d]
+        return {
+            "canal_liquidacao": canais.pop() if len(canais) == 1 else None,
+            "data_credito": max(creditos) if creditos else None,
+        }
 
     async def _pagamentos(self, id_banco: str, vencimento: Any) -> list[dict[str, Any]]:
         """Pagamentos de um titulo pela listagem (a consulta da v2 nao os traz).
@@ -542,6 +575,11 @@ class C6Adapter(BankAdapter):
             ocorrido_em=ocorrido_em,
             valor_pago=(
                 _dinheiro(info.get("amount"))
+                if tipo is StatusCanonico.LIQUIDADO
+                else None
+            ),
+            canal_liquidacao=(
+                _canal(info.get("payment_method"))
                 if tipo is StatusCanonico.LIQUIDADO
                 else None
             ),

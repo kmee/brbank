@@ -3,10 +3,22 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from brbank import Encargos, Pessoa, StatusCanonico, TabelaStatus, Titulo, Validacao
+from brbank import (
+    CanalLiquidacao,
+    Encargos,
+    EventoCanonico,
+    MotivoBaixa,
+    Pessoa,
+    StatusCanonico,
+    TabelaStatus,
+    Titulo,
+    TituloRegistrado,
+    Validacao,
+)
 from brbank.documento import cnpj_valido, cpf_valido, normalizar_documento
 from brbank.mascara import mascarar
-from tests.conftest import CPF_VALIDO, fazer_titulo
+from brbank.modelos import somar_informados
+from tests.conftest import CPF_VALIDO, assert_sem_detalhe, fazer_titulo
 
 
 def test_cpf_e_cnpj_numericos():
@@ -92,3 +104,40 @@ def test_tabela_status_desconhecido_levanta():
     assert tabela.traduzir("ok") is StatusCanonico.LIQUIDADO
     with pytest.raises(Validacao):
         tabela.traduzir("OUTRO")
+
+
+def test_detalhe_da_liquidacao_e_opcional():
+    # Compativel com quem ja monta o titulo e o evento sem os campos novos.
+    registrado = TituloRegistrado(
+        banco="x", id_banco="1", status=StatusCanonico.LIQUIDADO
+    )
+    evento = EventoCanonico(banco="x", referencia="1", tipo=StatusCanonico.BAIXADO)
+    assert_sem_detalhe(registrado)
+    assert_sem_detalhe(evento)
+
+
+def test_detalhe_da_liquidacao_preenchido():
+    registrado = TituloRegistrado(
+        banco="x",
+        id_banco="1",
+        status=StatusCanonico.LIQUIDADO,
+        canal_liquidacao="PIX",
+        valor_tarifa="1.50",
+        motivo_baixa=MotivoBaixa.OUTRO,
+    )
+    assert registrado.canal_liquidacao is CanalLiquidacao.PIX
+    assert registrado.valor_tarifa == Decimal("1.50")
+    with pytest.raises(ValidationError):
+        TituloRegistrado(
+            banco="x", id_banco="1", status=StatusCanonico.LIQUIDADO, valor_tarifa=1.5
+        )
+    with pytest.raises(ValidationError):
+        EventoCanonico(
+            banco="x", referencia="1", tipo=StatusCanonico.BAIXADO, motivo_baixa="X"
+        )
+
+
+def test_somar_informados_nunca_inventa_zero():
+    assert somar_informados(None, None) is None
+    assert somar_informados(Decimal("1.10"), None) == Decimal("1.10")
+    assert somar_informados(Decimal("1.10"), Decimal("2")) == Decimal("3.10")

@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Duplicado,
     Encargos,
@@ -22,7 +23,7 @@ from brbank import (
 from brbank.adapters.santander import SantanderAdapter, SantanderConfig
 from brbank.mascara import MASCARA
 from tests import santander_falso
-from tests.conftest import CNPJ_VALIDO, fazer_titulo
+from tests.conftest import CNPJ_VALIDO, assert_sem_detalhe, fazer_titulo
 from tests.santander_falso import BARRAS, LINHA, QR, WORKSPACE, SantanderFalso
 
 API = "/collection_bill_management/v2"
@@ -367,10 +368,34 @@ async def test_consulta_liquidada_le_valor_pago_e_data(adapter, falso):
     falso.liquidar(registrado.id_banco)
     consultado = await adapter.consultar_titulo(registrado.id_banco)
     assert consultado.status is StatusCanonico.LIQUIDADO
-    # paidValue tem precedencia sobre o valor creditado (liquido de tarifa).
+    # paidValue tem precedencia sobre o valor creditado.
     assert consultado.valor_pago == Decimal("150.00")
     assert consultado.data_pagamento == date(2026, 11, 10)
     assert falso.urls[-1].endswith("?tipoConsulta=settlement")
+    # Status Liquidado = pago pela linha digitavel ou codigo de barras (guia).
+    assert consultado.canal_liquidacao is CanalLiquidacao.CODIGO_BARRAS
+    assert consultado.data_credito == date(2026, 11, 11)
+    # settlementDutyValue nao tem descricao oficial: a tarifa fica None, e o
+    # creditado menor que o pago tambem nao vira tarifa.
+    assert consultado.valor_tarifa is None
+    # O acerto deste servidor falso nao traz desconto nem abatimento.
+    assert consultado.valor_desconto is None
+    assert consultado.valor_abatimento is None
+    assert consultado.valor_juros_multa is None
+
+
+async def test_detalhe_do_acerto_no_formato_oficial(adapter, falso):
+    # settlementData do exemplo "GET BILLS EXEMPLO - SETTLEMENT" do OpenAPI.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    acerto = falso.boletos[registrado.id_banco]["_settlement"]["settlementData"][0]
+    acerto.update(interestValue=2.5, deductionValue=1.25, discountValue=0.75)
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.valor_abatimento == Decimal("1.25")
+    assert consultado.valor_desconto == Decimal("0.75")
+    # interestValue e so juros: juros e multa juntos nao vem na consulta.
+    assert consultado.valor_juros_multa is None
+    assert consultado.motivo_baixa is None
 
 
 async def test_sem_paid_value_usa_settlement_value_e_nao_o_creditado(adapter, falso):
@@ -388,6 +413,10 @@ async def test_baixa_por_pix_vira_liquidacao(adapter, falso):
     assert consultado.status is StatusCanonico.LIQUIDADO
     assert consultado.valor_pago == Decimal("150.00")
     assert consultado.data_pagamento == date(2026, 11, 9)
+    assert consultado.canal_liquidacao is CanalLiquidacao.PIX
+    # A baixa por Pix nao traz settlementData: sem credito, desconto ou abatimento.
+    assert consultado.data_credito is None
+    assert consultado.valor_desconto is None
 
 
 async def test_indicacao_de_pix_no_complemento_vira_liquidacao(adapter, falso):
@@ -414,6 +443,8 @@ async def test_outra_baixa_nao_liquida(adapter, falso, descricao):
     consultado = await adapter.consultar_titulo(registrado.id_banco)
     assert consultado.status is StatusCanonico.BAIXADO
     assert consultado.valor_pago is None
+    # O guia nao da o texto de cada baixa: motivo e o resto ficam None.
+    assert_sem_detalhe(consultado)
 
 
 async def test_baixa_comum_nao_liquida(adapter, falso):
@@ -866,6 +897,30 @@ def test_webhook_pagamento_so_avisa(com_webhook):
     assert evento.ocorrido_em == datetime(2025, 11, 24, 10, 46, 52, 15034)
     assert evento.resposta_bruta["notification-uuid"] == "u-1"
     assert evento.resposta_bruta["paymentType"] == "PIX"
+    assert evento.canal_liquidacao is CanalLiquidacao.PIX
+    assert evento.data_credito == date(2025, 11, 24)
+    assert evento.valor_juros_multa == Decimal("0.00")
+    # Guia e OpenAPI trocam desconto e abatimento entre si: ficam None.
+    assert evento.valor_desconto is None
+    assert evento.valor_abatimento is None
+    assert evento.valor_tarifa is None
+
+
+@pytest.mark.parametrize(
+    ("tipo", "canal"),
+    [
+        ("SANTANDER", CanalLiquidacao.CODIGO_BARRAS),
+        ("OUTROS BANCOS", CanalLiquidacao.CODIGO_BARRAS),
+        ("NOVO", CanalLiquidacao.OUTRO),
+        ("", None),
+    ],
+)
+def test_webhook_canal_e_encargos(com_webhook, tipo, canal):
+    corpo = json.loads(santander_falso.webhook("18"))
+    corpo.update(paymentType=tipo, interestValue=1.2, fine=3.0)
+    evento = com_webhook.parse_webhook(corpo)[0]
+    assert evento.canal_liquidacao is canal
+    assert evento.valor_juros_multa == Decimal("4.20")
 
 
 def test_webhook_mascara_dados_pessoais(com_webhook):
@@ -886,6 +941,7 @@ def test_webhook_de_estorno_devolve_titulo_aberto(com_webhook):
     evento = com_webhook.parse_webhook(santander_falso.webhook("18", "ESTORNO"))[0]
     assert evento.tipo is StatusCanonico.REGISTRADO
     assert evento.valor_pago is None
+    assert_sem_detalhe(evento)
 
 
 @pytest.mark.parametrize(

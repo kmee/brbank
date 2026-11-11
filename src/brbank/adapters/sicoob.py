@@ -132,6 +132,16 @@ def _numero(valor: Decimal) -> float:
     return float(valor)
 
 
+def _dinheiro(valor: Any) -> Decimal | None:
+    """Numero JSON da consulta; ilegivel vira None, como no historico."""
+    if valor is None or valor == "":
+        return None
+    try:
+        return Decimal(str(valor)).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        return None
+
+
 def _dinheiro_ptbr(texto: str) -> Decimal | None:
     bruto = texto.rstrip(".,")
     if "," in bruto:
@@ -359,9 +369,13 @@ class SicoobAdapter(BankAdapter):
         )
         r = self._resultado(resp)
         status = self.tabela_status.traduzir(r.get("situacaoBoleto"))
-        valor_pago, data_pagamento = None, None
+        valor_pago, data_pagamento, abatimento = None, None, None
         if status is StatusCanonico.LIQUIDADO:
             valor_pago, data_pagamento = self._liquidacao(r)
+            # `valorAbatimento` do titulo (swagger v3). O resto do detalhe nao
+            # vem: o historico nao tem tabela oficial de tipos (tarifa inclusa)
+            # e os descontos da consulta sao os oferecidos, nao os usados.
+            abatimento = _dinheiro(r.get("valorAbatimento"))
         return TituloRegistrado(
             banco=self.banco,
             id_banco=id_banco,
@@ -373,6 +387,7 @@ class SicoobAdapter(BankAdapter):
             pix_copia_cola=r.get("qrCode"),
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
+            valor_abatimento=abatimento,
             resposta_bruta=r,
         )
 

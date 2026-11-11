@@ -23,7 +23,9 @@ Pontos do contrato:
   em texto, `dataVencimento` obrigatoria (de `Pagamento.vencimento` ou do fator
   de vencimento do codigo de barras).
 - Aprovacao: conforme a conta, o pagamento fica aguardando aprovacao no Internet
-  Banking (`ACEITO` aqui). Nao ha rota de aprovacao: `LIBERACAO` nao e declarada.
+  Banking (`AGUARDANDO_APROVACAO` aqui, ate a 0.0.13 era `ACEITO`) e, sem
+  aprovacao no prazo, vira `EXPIRADO` (`APROVACAO_EXPIRADA`; era `CANCELADO`).
+  Nao ha rota de aprovacao: `LIBERACAO` nao e declarada.
 """
 
 import asyncio
@@ -80,16 +82,17 @@ TIPOS_WEBHOOK = ("pix-pagamento", "boleto-pagamento")
 _NAMESPACE_IDEMPOTENCIA = uuid.UUID("6f1c9a52-6d1e-4b0e-9a57-2f1f3b8e0c11")
 
 TIPO_RETORNO_PIX = {
-    "APROVACAO": StatusPagamento.ACEITO,
+    "APROVACAO": StatusPagamento.AGUARDANDO_APROVACAO,
     "PROCESSADO": StatusPagamento.EM_PROCESSAMENTO,
     "AGENDADO": StatusPagamento.AGENDADO,
 }
 # Status do Pix na consulta (lista da descricao do OpenAPI, sem enum formal) e os
 # nomes antigos que o SDK oficial ainda conhece. PARCIALMENTE_* ficam fora de
-# proposito: nao ha como dizer o que foi pago.
+# proposito: nao ha como dizer o que foi pago. EXPIRADO segue CANCELADO: a lista
+# nao diz o que expirou, ao contrario do APROVACAO_EXPIRADA do boleto e do callback.
 STATUS_PIX = {
     "CRIADO": StatusPagamento.EM_PROCESSAMENTO,
-    "AGUARDANDO_APROVACAO": StatusPagamento.ACEITO,
+    "AGUARDANDO_APROVACAO": StatusPagamento.AGUARDANDO_APROVACAO,
     "APROVADO": StatusPagamento.EM_PROCESSAMENTO,
     "REPROVADO": StatusPagamento.CANCELADO,
     "EXPIRADO": StatusPagamento.CANCELADO,
@@ -110,14 +113,14 @@ STATUS_PIX = {
 # SituacaoPagamento (boleto e guia).
 STATUS_BOLETO = {
     "EMPROCESSAMENTO": StatusPagamento.EM_PROCESSAMENTO,
-    "AGUARDANDO_APROVACAO": StatusPagamento.ACEITO,
+    "AGUARDANDO_APROVACAO": StatusPagamento.AGUARDANDO_APROVACAO,
     "APROVADO": StatusPagamento.EM_PROCESSAMENTO,
     "AGENDADO": StatusPagamento.AGENDADO,
     "REALIZADO": StatusPagamento.PAGO,
     "CANCELADO": StatusPagamento.CANCELADO,
     "AGENDADO_CANCELADO": StatusPagamento.CANCELADO,
     "REPROVADO": StatusPagamento.CANCELADO,
-    "APROVACAO_EXPIRADA": StatusPagamento.CANCELADO,
+    "APROVACAO_EXPIRADA": StatusPagamento.EXPIRADO,
     "ERRO": StatusPagamento.REJEITADO,
     "NAO_COMPENSADO": StatusPagamento.REJEITADO,
 }
@@ -128,7 +131,7 @@ STATUS_WEBHOOK_PIX = {
     "PROCESSADO": StatusPagamento.EM_PROCESSAMENTO,
     "ERRO": StatusPagamento.REJEITADO,
     "REPROVADO": StatusPagamento.CANCELADO,
-    "APROVACAO_EXPIRADA": StatusPagamento.CANCELADO,
+    "APROVACAO_EXPIRADA": StatusPagamento.EXPIRADO,
     "CANCELADO": StatusPagamento.CANCELADO,
 }
 STATUS_WEBHOOK_BOLETO = {
@@ -137,7 +140,7 @@ STATUS_WEBHOOK_BOLETO = {
     "CANCELADO": StatusPagamento.CANCELADO,
     "ERRO": StatusPagamento.REJEITADO,
     "REPROVADO": StatusPagamento.CANCELADO,
-    "APROVACAO_EXPIRADA": StatusPagamento.CANCELADO,
+    "APROVACAO_EXPIRADA": StatusPagamento.EXPIRADO,
 }
 
 MOTIVO_NAO_ENVIADO = "NAO_ENVIADO"

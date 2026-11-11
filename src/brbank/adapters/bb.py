@@ -32,12 +32,15 @@ from brbank.auth import OAuth2ClientCredentials
 from brbank.capacidades import Capacidade
 from brbank.erros import Indisponivel, NaoSuportado, Validacao
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
+    MotivoBaixa,
     Pessoa,
     TipoInstrucao,
     Titulo,
     TituloRegistrado,
+    somar_informados,
 )
 from brbank.status import StatusCanonico, TabelaStatus
 from brbank.tempo import hoje_brasil
@@ -90,6 +93,27 @@ TABELA_STATUS = TabelaStatus.criar(
 )
 
 _CENTAVO = Decimal("0.01")
+
+# codigoTipoLiquidacao da consulta (OpenAPI Cobrancas 3.2.2). 5 e 6 ("titulo em
+# liquidacao") e codigo novo viram OUTRO: o banco informou, mas fora da lista.
+CANAIS_LIQUIDACAO = {
+    "1": CanalLiquidacao.CODIGO_BARRAS,  # caixa
+    "2": CanalLiquidacao.CODIGO_BARRAS,  # via COMPE
+    "3": CanalLiquidacao.CARTORIO,
+    "4": CanalLiquidacao.PIX,
+    "7": CanalLiquidacao.CODIGO_BARRAS,  # banco postal
+    "8": CanalLiquidacao.CODIGO_BARRAS,  # via COMPE/STR
+}
+# codigoTipoBaixaTitulo (mesmo OpenAPI). 2, 9, 31, 32, 35, 51 e 90 (baixa
+# automatica, sem dizer o porque) viram OUTRO.
+MOTIVOS_BAIXA = {
+    "1": MotivoBaixa.SOLICITACAO,
+    "10": MotivoBaixa.SOLICITACAO,  # comandada cliente, arquivo
+    "11": MotivoBaixa.SOLICITACAO,  # comandada cliente, on-line
+    "12": MotivoBaixa.DECURSO_PRAZO,
+    "13": MotivoBaixa.DECURSO_PRAZO,
+    "15": MotivoBaixa.PROTESTO,
+}
 
 
 @dataclass
@@ -172,6 +196,38 @@ def _dinheiro(valor: Any) -> Decimal | None:
         return Decimal(str(valor)).quantize(_CENTAVO)
     except InvalidOperation as exc:
         raise Validacao("valor monetario ilegivel na resposta do BB") from exc
+
+
+def _codigo(valor: Any) -> str | None:
+    """Codigo numerico do BB; 0 e vazio sao "nao informado"."""
+    texto = str(valor if valor is not None else "").strip().lstrip("0")
+    return texto or None
+
+
+def _detalhe(dados: dict[str, Any], status: StatusCanonico) -> dict[str, Any]:
+    """Detalhe da liquidacao ou da baixa, so com o que a consulta traz."""
+    if status is StatusCanonico.BAIXADO:
+        codigo = _codigo(dados.get("codigoTipoBaixaTitulo"))
+        if codigo is None:
+            return {}
+        return {"motivo_baixa": MOTIVOS_BAIXA.get(codigo, MotivoBaixa.OUTRO)}
+    if status is not StatusCanonico.LIQUIDADO:
+        return {}
+    canal = _codigo(dados.get("codigoTipoLiquidacao"))
+    return {
+        "canal_liquidacao": (
+            None
+            if canal is None
+            else CANAIS_LIQUIDACAO.get(canal, CanalLiquidacao.OUTRO)
+        ),
+        "data_credito": _data(dados.get("dataCreditoLiquidacao")),
+        "valor_juros_multa": somar_informados(
+            _dinheiro(dados.get("valorJuroMoraRecebido")),
+            _dinheiro(dados.get("valorMultaRecebido")),
+        ),
+        "valor_desconto": _dinheiro(dados.get("valorDescontoUtilizado")),
+        "valor_abatimento": _dinheiro(dados.get("valorAbatimentoTotal")),
+    }
 
 
 def _em_processamento(bruto: Any) -> bool:
@@ -446,6 +502,7 @@ class BancoDoBrasilAdapter(BankAdapter):
                 _data(dados.get("dataRecebimentoTitulo")) if liquidado else None
             ),
             resposta_bruta=dados,
+            **_detalhe(dados, status),
         )
 
     async def enviar_instrucao(

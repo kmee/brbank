@@ -146,7 +146,7 @@ async def test_chave_idempotente_estavel(adapter, falso):
 @pytest.mark.parametrize(
     ("retorno", "status"),
     [
-        ("APROVACAO", StatusPagamento.ACEITO),
+        ("APROVACAO", StatusPagamento.AGUARDANDO_APROVACAO),
         ("AGENDADO", StatusPagamento.AGENDADO),
     ],
 )
@@ -226,7 +226,7 @@ async def test_sem_resposta_e_indeterminado_sem_retry(adapter, falso, falha):
     ("status", "esperado", "motivos"),
     [
         ("PAGO", StatusPagamento.PAGO, ()),
-        ("AGUARDANDO_APROVACAO", StatusPagamento.ACEITO, ()),
+        ("AGUARDANDO_APROVACAO", StatusPagamento.AGUARDANDO_APROVACAO, ()),
         ("REPROVADO", StatusPagamento.CANCELADO, ()),
         ("FALHA", StatusPagamento.REJEITADO, ("AM04",)),
         ("PIX_PAGO", StatusPagamento.PAGO, ()),
@@ -354,6 +354,22 @@ def test_parse_webhook_pix_e_boleto(adapter):
     assert boleto_pago.data == HOJE
     assert boleto_erro.status is StatusPagamento.REJEITADO
     assert boleto_erro.motivos == ("E1",)
+
+
+def test_parse_webhook_aprovacao_expirada(adapter):
+    # StatusPixPagamento e StatusPagamentoBoletoCallback do OpenAPI do Banking.
+    eventos = adapter.parse_webhook_pagamento(
+        [
+            {"codigoSolicitacao": "a1", "status": "APROVACAO_EXPIRADA"},
+            {"codigoTransacao": "b1", "status": "APROVACAO_EXPIRADA"},
+            {"codigoTransacao": "b2", "status": "REPROVADO"},
+        ]
+    )
+    assert [e.status for e in eventos] == [
+        StatusPagamento.EXPIRADO,
+        StatusPagamento.EXPIRADO,
+        StatusPagamento.CANCELADO,
+    ]
 
 
 @pytest.mark.parametrize(

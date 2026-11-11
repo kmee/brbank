@@ -15,7 +15,7 @@ from brbank import (
     obter_classe,
 )
 from brbank.adapters.sicoob import SicoobAdapter, SicoobConfig
-from tests.conftest import fazer_titulo
+from tests.conftest import assert_sem_detalhe, fazer_titulo
 from tests.sicoob_falso import SicoobFalso
 
 
@@ -226,6 +226,20 @@ async def test_consulta_liquidada_le_historico(adapter, falso):
     assert consultado.status is StatusCanonico.LIQUIDADO
     assert consultado.valor_pago == Decimal("1150.50")
     assert consultado.data_pagamento == date(2026, 11, 10)
+    # Sem `valorAbatimento` na resposta, nada do detalhe vem preenchido.
+    assert_sem_detalhe(consultado)
+
+
+async def test_consulta_liquidada_traz_o_abatimento(adapter, falso):
+    # `resultado.valorAbatimento` da consulta no swagger v3 (3.0.8.0).
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.liquidar(registrado.id_banco)
+    falso.boletos[registrado.id_banco]["valorAbatimento"] = 12.5
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.valor_abatimento == Decimal("12.50")
+    # Historico de tarifa sem tabela oficial de tipos: tarifa nao e lida.
+    assert consultado.valor_tarifa is None
+    assert consultado.valor_desconto is None
 
 
 async def test_consulta_envia_identificacao_na_query(adapter, falso):

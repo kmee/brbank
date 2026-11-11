@@ -82,6 +82,12 @@ class StatusPagamento(StrEnum):
     # Sem resposta no envio de um pagamento que executa na hora: pode ter sido
     # pago. Conferir (consulta, extrato ou webhook) antes de reenviar.
     INDETERMINADO = "INDETERMINADO"
+    # Aceito, parado na aprovacao que alguem da empresa faz no canal do banco
+    # (internet banking), fora da API. Nao e final: nada foi pago ainda.
+    AGUARDANDO_APROVACAO = "AGUARDANDO_APROVACAO"
+    # A aprovacao nao veio no prazo do banco e o pagamento nao sera feito.
+    # Final, como CANCELADO: pode ser enviado de novo.
+    EXPIRADO = "EXPIRADO"
 
 
 class StatusLote(StrEnum):
@@ -281,6 +287,7 @@ def status_lote_local(pagamentos: tuple[PagamentoRegistrado, ...]) -> StatusLote
         StatusPagamento.REJEITADO,
         StatusPagamento.CANCELADO,
         StatusPagamento.DEVOLVIDO,
+        StatusPagamento.EXPIRADO,
     )
     if all(p.status in finais for p in pagamentos):
         return StatusLote.PROCESSADO

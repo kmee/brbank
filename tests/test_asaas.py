@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -18,7 +19,7 @@ from brbank import (
 from brbank.adapters.asaas import USER_AGENT, AsaasAdapter, AsaasConfig
 from tests import asaas_falso
 from tests.asaas_falso import CHAVE_API, AsaasFalso
-from tests.conftest import fazer_titulo, pagador
+from tests.conftest import assert_sem_detalhe, fazer_titulo, pagador
 
 
 def _config(**extra) -> AsaasConfig:
@@ -167,6 +168,23 @@ async def test_consulta_liquidada(adapter, falso):
     assert consultado.valor_pago == Decimal("150.00")
     assert consultado.data_pagamento == date(2026, 12, 9)
     assert consultado.seu_numero == "FAT-chave-1"
+    # Sem creditDate nem interestValue na resposta: nada inventado. A tarifa
+    # nunca sai de value - netValue.
+    assert_sem_detalhe(consultado)
+
+
+async def test_consulta_recebida_traz_credito_e_encargos(adapter, falso):
+    # PaymentGetResponseDTO do OpenAPI v3: creditDate e interestValue.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.confirmar(registrado.id_banco)
+    falso.cobrancas[registrado.id_banco].update(
+        creditDate="2026-12-10", interestValue=3.75, netValue=148.01
+    )
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.data_credito == date(2026, 12, 10)
+    assert consultado.valor_juros_multa == Decimal("3.75")
+    assert consultado.valor_tarifa is None
+    assert consultado.canal_liquidacao is None
 
 
 async def test_consulta_nao_rebusca_linha_e_qr_depois_de_paga(adapter, falso):
@@ -307,6 +325,16 @@ def test_webhook_recebido(adapter):
     assert evento.chave_dedup == ("asaas", "pay_1", StatusCanonico.LIQUIDADO)
     assert evento.valor_pago == Decimal("150.0")
     assert evento.ocorrido_em == datetime(2026, 12, 9, 10, 15, 30)
+    # O exemplo sem creditDate: o netValue nao vira tarifa nem credito.
+    assert_sem_detalhe(evento)
+
+
+def test_webhook_recebido_com_credito_e_encargos(adapter):
+    corpo = json.loads(asaas_falso.webhook("pay_1", "PAGO"))
+    corpo["payment"].update(creditDate="2026-12-11", interestValue=1.5)
+    (evento,) = adapter.parse_webhook(corpo)
+    assert evento.data_credito == date(2026, 12, 11)
+    assert evento.valor_juros_multa == Decimal("1.5")
 
 
 def test_webhook_confirmado_vencido_removido_estornado(adapter):

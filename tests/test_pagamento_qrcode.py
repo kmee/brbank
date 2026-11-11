@@ -134,6 +134,9 @@ def _linha(status: StatusPagamento) -> PagamentoRegistrado:
             StatusLote.EM_PROCESSAMENTO,
         ),
         ((StatusPagamento.ACEITO,), StatusLote.EM_PROCESSAMENTO),
+        # Aguardando aprovacao nao e final; expirado e.
+        ((StatusPagamento.AGUARDANDO_APROVACAO,), StatusLote.EM_PROCESSAMENTO),
+        ((StatusPagamento.PAGO, StatusPagamento.EXPIRADO), StatusLote.PROCESSADO),
     ],
 )
 def test_status_lote_local(estados, lote):

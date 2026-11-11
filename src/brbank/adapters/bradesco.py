@@ -47,8 +47,10 @@ from brbank.documento import normalizar_documento
 from brbank.erros import Indisponivel, NaoSuportado, Validacao
 from brbank.mascara import MASCARA
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
+    MotivoBaixa,
     Pessoa,
     TipoInstrucao,
     Titulo,
@@ -101,6 +103,18 @@ TABELA_STATUS = TabelaStatus.criar("2026.10", _MAPA_STATUS)
 TABELA_STATUS_HIBRIDO = TabelaStatus.criar(
     "2026.10", {**_MAPA_STATUS, "51": StatusCanonico.LIQUIDADO}
 )
+# O mesmo codStatus diz o canal quando o rotulo oficial o nomeia: 62 "PAGO EM
+# CARTORIO" e, no hibrido, 51 (pagamento via QR Code). 13 e 61 nao dizem: None.
+CANAIS_LIQUIDACAO = {"62": CanalLiquidacao.CARTORIO, "51": CanalLiquidacao.PIX}
+# Motivo da baixa pelo codStatus (Tabela 1 do manual). 55, 59, 60, 63, 64 e 98
+# viram OUTRO.
+MOTIVOS_BAIXA = {
+    "52": MotivoBaixa.DUPLICIDADE,
+    "53": MotivoBaixa.DECURSO_PRAZO,
+    "54": MotivoBaixa.JUDICIAL,
+    "57": MotivoBaixa.SOLICITACAO,
+    "58": MotivoBaixa.PROTESTO,
+}
 
 # Tabela de especies do manual.
 ESPECIES = {
@@ -909,12 +923,17 @@ class BradescoAdapter(BankAdapter):
     def _montar_consultado(
         self, id_banco: str, titulo: dict[str, Any], dados: dict[str, Any]
     ) -> TituloRegistrado:
-        status = self.tabela_status.traduzir(_codigo(titulo.get("codStatus")))
+        codigo = _codigo(titulo.get("codStatus"))
+        status = self.tabela_status.traduzir(codigo)
         valor_pago, data_pagamento = None, None
+        detalhe: dict[str, Any] = {}
         if status is StatusCanonico.LIQUIDADO:
             # 13 "PAGO NO DIA" pode vir sem valor e sem data: ficam None.
             valor_pago = self._valor_pago(titulo)
             data_pagamento = _data_ddmmaaaa(titulo.get("dtPagto"))
+            detalhe["canal_liquidacao"] = CANAIS_LIQUIDACAO.get(codigo)
+        elif status is StatusCanonico.BAIXADO:
+            detalhe["motivo_baixa"] = MOTIVOS_BAIXA.get(codigo, MotivoBaixa.OUTRO)
         linha = _digitos(titulo.get("linhaDig"))
         return TituloRegistrado(
             banco=self.banco,
@@ -929,6 +948,7 @@ class BradescoAdapter(BankAdapter):
             valor_pago=valor_pago,
             data_pagamento=data_pagamento,
             resposta_bruta=_sem_pii(dados),
+            **detalhe,
         )
 
     async def consultar_titulo(self, id_banco: str) -> TituloRegistrado:
