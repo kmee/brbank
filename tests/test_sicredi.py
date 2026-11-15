@@ -106,6 +106,7 @@ async def test_payload_de_registro(dormir):
     await adapter.registrar_titulo(titulo)
     corpo = falso.ultimo_corpo
     assert corpo["tipoCobranca"] == "HIBRIDO"
+    assert corpo["especieDocumento"] == "DUPLICATA_MERCANTIL_INDICACAO"
     assert corpo["codigoBeneficiario"] == "12345"
     assert corpo["valor"] == 150.01
     assert corpo["dataVencimento"] == "2026-12-10"
@@ -389,3 +390,8 @@ def test_webhook_invalido_e_validacao(dormir, corpo):
 def test_ambiente_invalido():
     with pytest.raises(Validacao):
         _ = config(ambiente="x").url_base
+
+
+def test_especie_fora_do_manual_e_recusada():
+    with pytest.raises(Validacao):
+        config(especie="DM")

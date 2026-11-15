@@ -17,6 +17,13 @@ SOLICITACAO`), que a `TABELA_STATUS` atual recusaria, e os eventos do webhook le
 (`LIQUIDACAO_COMPE_H5`, `_H6`, `_H8`, `LIQUIDACAO_CARTORIO`, `ESTORNO_LIQUIDACAO_REDE`), sem o corpo
 do aviso documentado. O canal so entra quando a tabela de status for revista com essa fonte.
 
+**Sandbox, 15/11/2026 (Odoo pelo `l10n_br_payment_brbank`):** token aceito, registro recusado com
+HTTP 400 "O campo especie documento contem um valor invalido": o `especieDocumento` e obrigatorio
+(Manual da API de Cobranca 3.9, campo 29) e o adapter nao o enviava. Desde a 0.0.15 vai
+`SicrediConfig.especie`, padrao `DUPLICATA_MERCANTIL_INDICACAO`, conferido contra o dominio do
+manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): cooperativa `6789`, posto
+`03`, beneficiario `12345`, usuario `123456789`, senha `teste123`.
+
 ## O que o adapter faz (confirmado so pelo ACBr)
 
 - Base `https://api-parceiro.sicredi.com.br` (sandbox com prefixo `/sb`). Token:
