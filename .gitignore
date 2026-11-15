@@ -9,3 +9,5 @@ dist/
 *.pfx
 *.crt
 *.key
+.env
+*.env
