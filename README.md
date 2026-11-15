@@ -155,6 +155,27 @@ dinamico, valor, nome e cidade do recebedor e txid), e `vencimento_do_boleto` ti
 do fator do codigo de barras (com o reinicio do fator em 22/02/2025). Codigo que nao confere
 levanta `ValueError`; nada e inventado.
 
+## Boleto em PDF
+
+Para os bancos cuja API nao entrega o PDF do boleto (Banco do Brasil e Bradesco, por exemplo),
+`brbank.pdf` gera o recibo do pagador e a ficha de compensacao no leiaute Febraban, um boleto por
+pagina A4. Requer o extra `pdf` (`pip install "brbank[pdf]"`: fpdf2 e qrcode, os mesmos que o
+brazilfiscalreport ja traz para a localizacao brasileira do Odoo).
+
+```python
+from brbank.pdf import BoletoPdf, Carteira, gerar_boleto_pdf
+
+carteira = Carteira(banco="001", agencia_codigo="1607 / 3128557", carteira="17")
+pdf = gerar_boleto_pdf([BoletoPdf(titulo, registrado, carteira)])  # bytes
+```
+
+Os dados vem do `Titulo` e do `TituloRegistrado` que o banco devolveu: nada e calculado por banco.
+O codigo de barras e a linha digitavel sao conferidos entre si e com o valor do titulo (divergencia
+levanta `Validacao`); se o banco devolveu so um dos dois, o outro e derivado. No boleto hibrido
+(`pix_copia_cola` preenchido), o recibo traz o QR do Pix e o texto do copia e cola, e a ficha traz
+o QR ao lado das instrucoes. O banco aparece pelo codigo e pelo nome, sem logomarca;
+`ConfigBoleto(logo=...)` poe o logo do beneficiario no recibo.
+
 ## DDA (boletos a pagar)
 
 O lado de pagar: `brbank.dda` define o contrato opcional `AdapterDda` (capacidades `CapacidadeDda`:
