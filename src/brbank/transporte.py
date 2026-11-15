@@ -16,7 +16,13 @@ import httpx
 
 from brbank.auth import Autenticador
 from brbank.envelope import Envelope, EnvelopeNulo
-from brbank.erros import Duplicado, ErroBrbank, Indisponivel, Validacao
+from brbank.erros import (
+    Duplicado,
+    ErroBrbank,
+    Indisponivel,
+    Validacao,
+    motivo_do_banco,
+)
 
 log = logging.getLogger("brbank.transporte")
 
@@ -96,7 +102,13 @@ def erro_de_resposta(resp: httpx.Response) -> ErroBrbank:
         return Indisponivel(f"banco respondeu HTTP {status}", **comum)
     if status == 409:
         return Duplicado("titulo ja existe no banco", **comum)
-    return Validacao(f"banco recusou a requisicao (HTTP {status})", **comum)
+    erro = Validacao(f"banco recusou a requisicao (HTTP {status})", **comum)
+    # O motivo sai da resposta ja mascarada: quem le a mensagem sabe o que corrigir.
+    motivo = motivo_do_banco(erro.resposta_bruta)
+    if motivo:
+        erro.mensagem = f"{erro.mensagem}: {motivo}"
+        erro.args = (erro.mensagem,)
+    return erro
 
 
 def _retry_after(resp: httpx.Response) -> float | None:

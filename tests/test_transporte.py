@@ -6,7 +6,13 @@ import pytest
 from brbank import Duplicado, Indisponivel, Validacao
 from brbank.auth import OAuth2ClientCredentials
 from brbank.envelope import Envelope
-from brbank.transporte import SEM_RETRY, LimitadorTaxa, PoliticaRetry, Transporte
+from brbank.transporte import (
+    SEM_RETRY,
+    LimitadorTaxa,
+    PoliticaRetry,
+    Transporte,
+    erro_de_resposta,
+)
 
 
 def transporte(tratar, dormir, **kw):
@@ -161,3 +167,94 @@ async def test_retry_trocado_so_na_chamada(dormir):
     with pytest.raises(Indisponivel):
         await t.requisitar("GET", "/consultar", operacao="op")
     assert len(chamadas) == 1 + PoliticaRetry().tentativas
+
+
+# Corpos de recusa vistos nos sandboxes em 15/11/2026.
+_BB_NOSSO_NUMERO = {
+    "erros": [
+        {
+            "codigo": "4874915",
+            "versao": "1",
+            "mensagem": "Nosso Número já incluído anteriormente.",
+            "providencia": "Informar outro Nosso Número.",
+            "ocorrencia": "075103844484",
+        }
+    ]
+}
+_BRADESCO_VALIDACAO = {
+    "codigo": "1",
+    "mensagem": "Nao foi possivel processar as instrucoes contidas na requisicao",
+    "errosValidacao": [
+        {
+            "nomeDoArquivo": "default.json",
+            "erros": [
+                f"O argumento campo{n} não foi enviado na requisição."
+                for n in range(30)
+            ],
+        }
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        (
+            _BB_NOSSO_NUMERO,
+            "banco recusou a requisicao (HTTP 400): Nosso Número já incluído "
+            "anteriormente.; Informar outro Nosso Número.",
+        ),
+        (
+            {
+                "status": "Error",
+                "mensagem": "A Request enviada não atende aos cenários",
+            },
+            "banco recusou a requisicao (HTTP 400): A Request enviada não atende aos "
+            "cenários",
+        ),
+        (
+            {
+                "title": "Cobranca invalida",
+                "detail": "A requisicao nao respeita o schema.",
+                "violacoes": [
+                    {"razao": "valor.original ausente", "propriedade": "valor"}
+                ],
+            },
+            "banco recusou a requisicao (HTTP 400): A requisicao nao respeita o "
+            "schema.; valor.original ausente",
+        ),
+        ({"codigo": "99"}, "banco recusou a requisicao (HTTP 400)"),
+        ("<html>erro</html>", "banco recusou a requisicao (HTTP 400)"),
+    ],
+)
+def test_recusa_traz_o_motivo_do_banco(corpo, esperado):
+    kw = {"json": corpo} if isinstance(corpo, dict) else {"text": corpo}
+    erro = erro_de_resposta(httpx.Response(400, **kw))
+    assert isinstance(erro, Validacao)
+    assert str(erro) == esperado
+    assert erro.args == (esperado,)
+
+
+def test_motivo_longo_e_cortado():
+    erro = erro_de_resposta(httpx.Response(422, json=_BRADESCO_VALIDACAO))
+    motivo = str(erro).split(": ", 1)[1]
+    assert motivo.startswith("Nao foi possivel processar")
+    assert motivo.count(";") == 3  # a mensagem e 3 erros, nunca os 30
+    assert len(motivo) <= 400
+
+
+def test_motivo_nao_leva_segredo_ecoado():
+    corpo = {
+        "message": "invalid request: client_id=abc&client_secret=s3gr3d0 token: xyz"
+    }
+    texto = str(erro_de_resposta(httpx.Response(400, json=corpo)))
+    assert "s3gr3d0" not in texto
+    assert "abc" not in texto
+    assert "xyz" not in texto
+    assert "client_secret=***" in texto
+
+
+def test_indisponivel_e_duplicado_mantem_a_mensagem():
+    erro = erro_de_resposta(httpx.Response(503, json={"message": "fora"}))
+    assert str(erro) == "banco respondeu HTTP 503"
+    assert isinstance(erro_de_resposta(httpx.Response(409, json={})), Duplicado)
