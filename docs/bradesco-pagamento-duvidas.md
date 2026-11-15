@@ -5,6 +5,15 @@ bancarios, boleto de cobranca, guia e conta de consumo com codigo de barras e TE
 `validado_sandbox = False`: so servidor falso. O sandbox exige organizacao cadastrada no portal e
 certificado (autoassinado serve, com nome e CNPJ da empresa no CN). Nada rodou contra o banco.
 
+**Sandbox, 15/11/2026 (credenciais da KMEE, certificado autoassinado sem CNPJ no CN):** os dois
+tokens sairam (mTLS em `/auth/server-mtls/v2/token`; Pix em `/auth/server/oauth/token`, formulario),
+apesar de os manuais pedirem razao social e CNPJ no CN tambem no sandbox. O sandbox e um simulador
+que so responde as requisicoes de exemplo da documentacao. A consulta de transferencia Pix e
+`GET /v1/spi/consulta/transferencia/{idTransacao}/{e2e}` (OpenAPI oficial 2.3.2): com um segmento so
+o gateway responde 403; com os dois, 200. Desde entao o `id_banco` do Pix e `idtransacao|e2e`. A
+consulta de TED do simulador recusa qualquer `dataOperacao` (422 "o argumento nao existe no
+arquivo"), inclusive o exemplo do proprio OpenAPI: defeito do simulador, nao do adapter.
+
 **Isto corrige a pesquisa anterior.** A conclusao "o Bradesco nao tem API publica de pagamento" e a
 nota de `docs/bradesco-duvidas.md` ("a especificacao fica atras de login") estao erradas: a pagina
 do portal e so JavaScript, mas o proprio portal le uma API JSON aberta.

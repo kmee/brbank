@@ -54,7 +54,7 @@ Sem prova no sandbox: o OAuth de producao do Sicoob (sem `client_secret`, mTLS) 
 | sicoob (validado no sandbox) | so `client_id` (sandbox: token fixo do portal) | sim | prod | header `client_id`, alias `brcode` -> `pixCopiaECola` |
 | sicredi | Basic | sim | sim | nenhum |
 | itau | form (id+segredo) | nao | prod | header `x-correlationID` (UUID por chamada) |
-| bradesco | Basic, HTTP/1.1 | nao | sim | nenhum |
+| bradesco | formulario, HTTP/1.1 (manual do token Pix 2.0.0; sandbox em openapisandbox.prebanco.com.br, token em /auth/server/oauth/token, conferido em 15/11/2026) | nao | sim | nenhum |
 | santander | form, `?grant_type` na URL | nao | prod | sandbox cria por POST, baixa (PATCH) em `/api/v2` na producao |
 | efi (GerenciaNet) | Basic + corpo JSON, HTTP/1.1 | nao | sim | header opcional `x-partner-token` |
 | bnb | sem perfil | | | ver abaixo |

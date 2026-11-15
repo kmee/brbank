@@ -136,8 +136,10 @@ class BradescoPagamentoFalso:
     def _pix(self, metodo: str, caminho: str, corpo: dict) -> httpx.Response:
         if metodo == "POST":
             return self._solicitar_pix(corpo)
-        transacao = self.pix.get(caminho.rsplit("/", 1)[-1])
-        if not transacao:
+        # OpenAPI oficial: GET /v1/spi/consulta/transferencia/{idTransacao}/{e2e}.
+        partes = caminho.rstrip("/").split("/")
+        transacao = self.pix.get(partes[-2])
+        if not transacao or transacao["e2e"] != partes[-1]:
             return _problema(404, "5013", "Transferencia nao encontrada")
         return httpx.Response(
             200,
