@@ -368,14 +368,30 @@ async def test_itau_sem_escopo_e_correlacao_unica():
     assert len(ids) == 2
 
 
-async def test_bradesco_e_efi_http1_basic():
-    for nome in ("bradesco", "efi"):
-        adapter, falso = montar(nome)
-        await adapter.registrar_titulo(fazer_titulo())
-        assert PERFIS[nome].http1
-        assert falso.basic() == "id:segredo"
-        assert "scope" not in falso.corpo_token()
-    assert falso.corpo_token() == {"grant_type": "client_credentials"}  # efi: JSON
+async def test_efi_http1_basic():
+    adapter, falso = montar("efi")
+    await adapter.registrar_titulo(fazer_titulo())
+    assert PERFIS["efi"].http1
+    assert falso.basic() == "id:segredo"
+    assert falso.corpo_token() == {"grant_type": "client_credentials"}  # JSON
+
+
+async def test_bradesco_credenciais_no_formulario_e_host_oficial():
+    perfil = PERFIS["bradesco"]
+    assert perfil.url_base("sandbox") == "https://openapisandbox.prebanco.com.br/v2"
+    assert perfil.url_token("sandbox").endswith(
+        "openapisandbox.prebanco.com.br/auth/server/oauth/token"
+    )
+    assert perfil.url_token("producao") == (
+        "https://qrpix.bradesco.com.br/auth/server/oauth/token"
+    )
+    adapter, falso = montar("bradesco")
+    await adapter.registrar_titulo(fazer_titulo())
+    assert falso.basic() is None
+    corpo = falso.corpo_token()
+    assert corpo["client_id"] == "id"
+    assert corpo["client_secret"] == "segredo"
+    assert "scope" not in corpo
 
 
 async def test_efi_header_de_parceiro():

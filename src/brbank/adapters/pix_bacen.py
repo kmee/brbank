@@ -205,13 +205,20 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="bradesco",
-        url_sandbox="https://qrpix-h.bradesco.com.br/v2",
+        # Catalogo do Bradesco Developers (Pix - geracao de QR Code 1.2.3) e manual do
+        # token Pix 2.0.0 (06/07/2026): sandbox no host unico do banco, credenciais no
+        # formulario, mTLS nos dois ambientes.
+        url_sandbox="https://openapisandbox.prebanco.com.br/v2",
         url_producao="https://qrpix.bradesco.com.br/v2",
-        url_token_sandbox="https://qrpix-h.bradesco.com.br/oauth/token",
-        url_token_producao="https://qrpix.bradesco.com.br/oauth/token",
-        autenticacao="basic",
+        url_token_sandbox=(
+            "https://openapisandbox.prebanco.com.br/auth/server/oauth/token"
+        ),
+        url_token_producao="https://qrpix.bradesco.com.br/auth/server/oauth/token",
         escopos=None,
         http1=True,
+        observacoes=(
+            "o certificado precisa da razao social e do CNPJ no CN, tambem no sandbox",
+        ),
     ),
     PerfilPsp(
         nome="santander",

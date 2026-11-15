@@ -24,7 +24,9 @@ Pontos do contrato:
 - Dois hosts e dois tokens: o Pix em `qrpix.bradesco.com.br`, o resto em
   `openapi.bradesco.com.br`. No sandbox e um host so.
 - `id_banco` e opaco, montado aqui para a consulta funcionar sem outro estado: Pix
-  = `idtransacao`, boleto = `transactionId`, guia = `idTransacao|AAAA-MM-DD`, TED =
+  = `idtransacao|e2e` (a consulta oficial pede os dois: `GET .../{idTransacao}/{e2e}`;
+  sem resposta no envio fica so o `idtransacao`, e so o extrato resolve), boleto =
+  `transactionId`, guia = `idTransacao|AAAA-MM-DD`, TED =
   `chaveUnicaTed` (documento de 7 digitos + DD.MM.AAAA). Conta fora do id: a conta
   da consulta vem da configuracao, uma instancia por conta.
 - Idempotencia: Pix, boleto e guia levam um id gerado pelo cliente, que o banco nao
@@ -705,9 +707,10 @@ class BradescoPagamentoAdapter(AdapterPagamento):
         status = STATUS_PIX.get(str(dados.get("status")))
         if status is None:
             raise _Incerto(id_transacao)
+        e2e = str(dados.get("e2e") or "")
         return self._linha(
             p,
-            id_transacao,
+            f"{id_transacao}|{e2e}" if e2e.isalnum() else id_transacao,
             status,
             dados,
             motivos=self._motivos_pix(dados, status),
@@ -1044,10 +1047,19 @@ class BradescoPagamentoAdapter(AdapterPagamento):
         raise NaoSuportado(f"bradesco: consulta de {tipo.value} nao existe")
 
     async def _consultar_pix(self, id_banco: str) -> PagamentoRegistrado:
-        if not id_banco.isalnum():
+        id_transacao, _, e2e = id_banco.partition("|")
+        if not id_transacao.isalnum() or (e2e and not e2e.isalnum()):
             raise Validacao("bradesco: id de Pix invalido")
+        if not e2e:
+            raise Validacao(
+                "bradesco: a consulta de Pix exige o endToEndId, que so vem na "
+                "resposta do envio; sem ela, conferir no extrato"
+            )
         dados = await self._objeto(
-            self._pix, "GET", f"{ROTA_PIX_CONSULTA}/{id_banco}", "consultar_pix"
+            self._pix,
+            "GET",
+            f"{ROTA_PIX_CONSULTA}/{id_transacao}/{e2e}",
+            "consultar_pix",
         )
         status = STATUS_PIX.get(str(dados.get("status")))
         if status is None:

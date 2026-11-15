@@ -234,7 +234,7 @@ async def test_pix_por_chave(adapter, falso):
     }
     (linha,) = registrado.pagamentos
     assert linha.status is StatusPagamento.PAGO
-    assert linha.id_banco == corpo["idtransacao"]
+    assert linha.id_banco == f"{corpo['idtransacao']}|E60746948202610301715L2856oOXfn8"
     assert linha.autenticacao == "E60746948202610301715L2856oOXfn8"
     assert linha.valor == Decimal("15.00")
     assert registrado.status is StatusLote.PROCESSADO
@@ -437,6 +437,7 @@ async def test_pix_reenvio_leva_o_mesmo_id_e_nao_paga_duas_vezes(adapter, falso)
 async def test_pix_consulta(adapter, falso):
     registrado = await adapter.pagar_lote(lote(pix()))
     id_banco = registrado.pagamentos[0].id_banco
+    assert id_banco.endswith("|E60746948202610301715L2856oOXfn8")
     consulta = await adapter.consultar_pagamento(id_banco, TipoPagamento.PIX)
     assert consulta.status is StatusPagamento.PAGO
     assert consulta.valor == Decimal("15.00")
@@ -447,8 +448,10 @@ async def test_pix_consulta(adapter, falso):
 
 async def test_pix_consulta_nao_encontrada_e_status_desconhecido(adapter, falso):
     with pytest.raises(Validacao) as exc:
-        await adapter.consultar_pagamento("naoexiste", TipoPagamento.PIX)
+        await adapter.consultar_pagamento("naoexiste|E1", TipoPagamento.PIX)
     assert exc.value.status_http == 404
+    with pytest.raises(Validacao, match="endToEndId"):
+        await adapter.consultar_pagamento("semresposta", TipoPagamento.PIX)
     with pytest.raises(Validacao, match="invalido"):
         await adapter.consultar_pagamento("../x", TipoPagamento.PIX)
     with pytest.raises(Validacao, match="exige"):
