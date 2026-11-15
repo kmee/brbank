@@ -89,6 +89,25 @@ TABELA_WEBHOOK = TabelaStatus.criar(
 
 _CENTAVO = Decimal("0.01")
 
+# Dominio de `especieDocumento`, obrigatorio no registro (manual da Cobranca 3.9).
+ESPECIES = frozenset(
+    {
+        "DUPLICATA_MERCANTIL_INDICACAO",
+        "DUPLICATA_RURAL",
+        "NOTA_PROMISSORIA",
+        "NOTA_PROMISSORIA_RURAL",
+        "NOTA_SEGUROS",
+        "RECIBO",
+        "LETRA_CAMBIO",
+        "NOTA_DEBITO",
+        "DUPLICATA_SERVICO_INDICACAO",
+        "OUTROS",
+        "BOLETO_PROPOSTA",
+        "CARTAO_CREDITO",
+        "BOLETO_DEPOSITO",
+    }
+)
+
 
 @dataclass
 class SicrediConfig:
@@ -104,8 +123,13 @@ class SicrediConfig:
     ambiente: str = "producao"
     # Boleto hibrido (boleto com QR Pix). False pede `NORMAL`.
     hibrido: bool = True
+    especie: str = "DUPLICATA_MERCANTIL_INDICACAO"
     escopo: str = ESCOPO_PADRAO
     requisicoes_por_segundo: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.especie not in ESPECIES:
+            raise Validacao(f"especie Sicredi desconhecida: {self.especie!r}")
 
     @property
     def url_base(self) -> str:
@@ -237,6 +261,7 @@ class SicrediAdapter(BankAdapter):
         payload: dict[str, Any] = {
             "tipoCobranca": "HIBRIDO" if self._config.hibrido else "NORMAL",
             "codigoBeneficiario": self._config.codigo_beneficiario,
+            "especieDocumento": self._config.especie,
             "seuNumero": titulo.seu_numero,
             "dataVencimento": titulo.vencimento.isoformat(),
             "valor": _numero(titulo.valor),
