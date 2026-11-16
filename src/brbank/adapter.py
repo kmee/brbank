@@ -27,6 +27,17 @@ class BankAdapter(ABC):
     # usa a biblioteca trata todas como possiveis.
     instrucoes: ClassVar[frozenset[TipoInstrucao] | None] = None
 
+    @classmethod
+    def instrucoes_da_config(
+        cls, ajustes: Mapping[str, object]
+    ) -> frozenset[TipoInstrucao] | None:
+        """Instrucoes aceitas com estas configuracoes publicas da conta (sem segredo).
+
+        Por padrao, as da classe; o adapter cujo produto muda o que o banco aceita
+        sobrescreve (ex.: o Bradesco nao protesta o boleto com QR Code).
+        """
+        return cls.instrucoes
+
     def suporta(self, capacidade: Capacidade) -> bool:
         return capacidade in self.capacidades
 

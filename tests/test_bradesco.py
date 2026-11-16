@@ -872,6 +872,19 @@ async def test_hibrido_sem_protesto_por_instrucao(hibrido, tipo):
         await hibrido.enviar_instrucao("1", _instrucao(tipo))
 
 
+def test_instrucoes_conforme_o_produto():
+    """Quem le sem instanciar (o Odoo) ve que o boleto com QR Code nao protesta."""
+    sem_qr = BradescoAdapter.instrucoes_da_config({"hibrido": False})
+    com_qr = BradescoAdapter.instrucoes_da_config({"hibrido": True})
+    assert TipoInstrucao.PROTESTO in sem_qr
+    assert TipoInstrucao.NEGATIVACAO in sem_qr
+    assert TipoInstrucao.PROTESTO not in com_qr
+    assert TipoInstrucao.NEGATIVACAO not in com_qr
+    assert com_qr == sem_qr - {TipoInstrucao.PROTESTO, TipoInstrucao.NEGATIVACAO}
+    # Os outros adapters seguem a declaracao da classe.
+    assert obter_classe("bb").instrucoes_da_config({}) == obter_classe("bb").instrucoes
+
+
 async def test_hibrido_baixa_usa_a_rota_comum(hibrido, falso):
     registrado = await hibrido.registrar_titulo(fazer_titulo())
     baixado = await hibrido.baixar_titulo(registrado.id_banco)

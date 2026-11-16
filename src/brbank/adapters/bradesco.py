@@ -450,6 +450,16 @@ class BradescoAdapter(BankAdapter):
         }
     )
 
+    @classmethod
+    def instrucoes_da_config(
+        cls, ajustes: Mapping[str, object]
+    ) -> frozenset[TipoInstrucao]:
+        """O boleto com QR Code (`hibrido`) nao aceita protesto nem negativacao
+        por instrucao (docs/bradesco-duvidas.md)."""
+        if ajustes.get("hibrido"):
+            return cls.instrucoes - {TipoInstrucao.PROTESTO, TipoInstrucao.NEGATIVACAO}
+        return cls.instrucoes
+
     def __init__(
         self,
         config: BradescoConfig,

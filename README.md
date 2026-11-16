@@ -42,7 +42,9 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 
 Cada adapter declara em `instrucoes` (atributo da classe, lido sem instanciar) quais
 `TipoInstrucao` o `enviar_instrucao` executa; as outras levantam `NaoSuportado` antes de chamar o
-banco, e a suite de contrato confere as duas pontas. Hoje: prorrogacao, abatimento e baixa em
+banco, e a suite de contrato confere as duas pontas. Quando o produto muda o que o banco aceita, o
+metodo de classe `instrucoes_da_config(ajustes)` responde pelas configuracoes publicas da conta,
+sem segredo (o Bradesco com `hibrido` nao protesta nem negativa). Hoje: prorrogacao, abatimento e baixa em
 Asaas, Banrisul, BB, BTG, Caixa e Sicredi; mais protesto em Itau (com `dias_protesto`),
 Santander e Sicoob; Bradesco tambem negativa (protesto e negativacao so sem QR Code); C6 so
 prorroga e baixa; Unicred so baixa; Inter, PinBank, Safra e o Pix nenhuma.
