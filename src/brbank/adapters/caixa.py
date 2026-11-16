@@ -343,6 +343,13 @@ class CaixaAdapter(BankAdapter):
         Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+        }
+    )
 
     def __init__(
         self,

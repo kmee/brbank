@@ -282,6 +282,13 @@ class BancoDoBrasilAdapter(BankAdapter):
     banco: ClassVar[str] = "bb"
     capacidades: ClassVar[Capacidade] = Capacidade.ALTERACAO | Capacidade.BAIXA
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+        }
+    )
     validado_sandbox: ClassVar[bool] = True
 
     def __init__(

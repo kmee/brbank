@@ -179,6 +179,14 @@ class SicoobAdapter(BankAdapter):
         Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA | Capacidade.PDF
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+            TipoInstrucao.PROTESTO,
+        }
+    )
 
     def __init__(
         self,

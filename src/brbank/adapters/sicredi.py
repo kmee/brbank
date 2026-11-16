@@ -198,6 +198,13 @@ class SicrediAdapter(BankAdapter):
         | Capacidade.WEBHOOK
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+        }
+    )
     # So vira True depois de rodar contra o sandbox real do Sicredi.
     validado_sandbox: ClassVar[bool] = False
 

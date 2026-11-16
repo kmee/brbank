@@ -439,6 +439,16 @@ class BradescoAdapter(BankAdapter):
         | Capacidade.WEBHOOK
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    # Protesto e negativacao so no boleto sem QR Code (`hibrido=False`).
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+            TipoInstrucao.PROTESTO,
+            TipoInstrucao.NEGATIVACAO,
+        }
+    )
 
     def __init__(
         self,

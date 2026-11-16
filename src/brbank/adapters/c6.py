@@ -253,6 +253,12 @@ class C6Adapter(BankAdapter):
         | Capacidade.WEBHOOK
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+        }
+    )
 
     def __init__(
         self,

@@ -446,6 +446,7 @@ class UnicredAdapter(BankAdapter):
         | Capacidade.INSTRUCAO_ASSINCRONA
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset({TipoInstrucao.BAIXA})
 
     def __init__(
         self,

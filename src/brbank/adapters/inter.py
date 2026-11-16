@@ -31,6 +31,7 @@ from brbank.modelos import (
     Instrucao,
     MotivoBaixa,
     Pessoa,
+    TipoInstrucao,
     Titulo,
     TituloRegistrado,
 )
@@ -149,6 +150,7 @@ class InterAdapter(BankAdapter):
         | Capacidade.EMISSAO_ASSINCRONA
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset()
 
     def __init__(
         self,
