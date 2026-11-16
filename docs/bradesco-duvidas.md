@@ -1,7 +1,8 @@
 # Bradesco (237), API Cobranca: fontes, conflitos e duvidas
 
-`BradescoAdapter.validado_sandbox = False`. Nada foi executado contra o Bradesco: nao ha
-credencial. O adapter cobre os dois produtos de cobranca do portal, escolhidos por
+`BradescoAdapter.validado_sandbox = False`. Desde 15/11/2026 o adapter roda contra o
+simulador do sandbox (ver "Sandbox e respostas da documentacao", no fim). O adapter cobre os dois
+produtos de cobranca do portal, escolhidos por
 `BradescoConfig.hibrido`. Capacidades: `ALTERACAO`, `BAIXA`, `HIBRIDO` (com `hibrido=True`) e
 `WEBHOOK` (com `webhook=True`). Sem `PDF`, que a API nao tem.
 
@@ -232,3 +233,54 @@ e `vlr_pagto_em_centavos=True` resolve. Com `webhook=True`, conferir tambem que 
 Erros comuns: 401 "SSL with client authentication is required" (certificado diferente do cadastrado na
 credencial), 401 "client credentials were not valid", 403 (recurso nao vinculado a credencial no portal),
 `CBTT0004` em negociacao (ver terceiros).
+
+## Sandbox e respostas da documentacao (15/11/2026)
+
+**Simulador.** O sandbox compara a requisicao com arquivos de cenario montados da collection e so
+responde ao exemplo oficial, com os mesmos valores; o resto volta 422 ("A Request enviada nao atende
+aos cenarios existentes para Sandbox") com a lista de chaves que faltam ou sobram por cenario. A
+resposta do registro e pronta: devolve R$ 100,00, vencimento 26.12.2026 e seu numero "." para
+qualquer pedido, e a conferencia de valor do adapter a recusa, como deve. Fatura de verdade nunca
+registra no sandbox. Rodado pela conexao do Odoo:
+
+| Operacao | Corpo enviado | Resultado |
+| --- | --- | --- |
+| Registro | o da collection (o do adapter segue o manual, ver abaixo) | resposta lida: nosso numero, linha de 47 e codigo de 44 digitos com DV conferido |
+| Consulta 53199900041 | montado pelo adapter, beneficiario do exemplo | aceito; `REGISTRADO`, linha e codigo conferidos |
+| Baixa 50150001462 | montado pelo adapter, beneficiario do exemplo | aceito; `CBTT0532`, `dados.status` 57, `BAIXADO` |
+
+O beneficiario dos exemplos de consulta e baixa (raiz 1234567, filial 1, controle 99) nao tem DV
+valido; o teste troca o documento direto na configuracao ja criada.
+
+**Respostas da documentacao do portal**, lidas no navegador logado em 15/11/2026 (manual da cobranca
+1.6.4 de 07/10/2026, OpenAPI do registro 1.0.0, manual com QR Code 1.0.6 de 06/11/2026, guias de token,
+webhook, Pix 1.1.1, pagamento de boleto 1.0.0 e TED 1.0.0):
+
+1. **Leiaute completo no registro.** O manual, em "Observacoes para o preenchimento dos campos", manda
+   informar todos os campos do layout: numerico com 0 e alfanumerico em branco nos nao obrigatorios.
+   O adapter passou a mandar os 69 campos da tabela de entrada, sempre (`_registro_vazio`). Os tres
+   conjuntos oficiais divergem: a tabela tem `tpVencimento` (obrigatorio, fixo 0) e o sacador avalista;
+   o exemplo JSON do mesmo manual nao tem esses e traz `indicadorMoeda`, `prazoBonificacao`, telefone
+   do pagador e protesto; a collection nao tem `tpVencimento`, `nuTitulo` nem `endEletronicoPagador` e
+   traz `cindcdAceitSacdo`. Vale a tabela, que a regra chama de layout. `cindcdAceitSacdo` no
+   convencional so existe no OpenAPI (opcional, sem valores); no hibrido e fixo "N".
+2. **`nuTitulo`**: ate 11 posicoes, sem o digito, informado pelo cliente ou gerado pelo banco; o exemplo
+   do manual manda 0 e recebe `nuTituloGerado`. O adapter manda 0 quando nao gera o numero.
+3. **`endEletronicoPagador`**: aceito; 100 posicoes no manual, 70 no OpenAPI. Usado 70.
+4. **Valor e percentuais**: seguem em conflito (manual com duas casas, OpenAPI so digitos); a
+   documentacao nao decide. Ficam o padrao em reais e a defesa do valor ecoado.
+5. **Dias de juros e multa**: o manual confirma "para iniciar 2 dias apos, enviar 3"; o padrao 2 (um dia
+   depois do vencimento) segue a mesma regra.
+6. **`Authorization`**: o OpenAPI descreve o 401 como falta do "Bearer Token". Padrao `Bearer` confirmado.
+7. **Duplicidade**: codigo 69 "titulo ja cadastrado" e 86 "registro duplicado" na tabela de retorno; sem
+   exemplo de corpo, entao segue sem mapeamento para `Duplicado`.
+8. **`vlrPagto`**: a unidade nao e informada; a lista de liquidados traz inteiros (centavos).
+9. **Status 51 (convencional), 56, 65 a 73**: so os rotulos; pago ou baixado segue sem resposta.
+10. **`txId` do hibrido**: o registro devolve `iconcPgtoSpi` ("TXID do titulo", 35 posicoes), que o
+    adapter ja guarda; a consulta nao traz.
+11. **Webhook**: rotas `/cadastrar` (sandbox) e `/executar` (producao) confirmadas; o cliente envia um
+    certificado SSL EV ou OV para `governancaapis@bradesco.com.br` e confia na cadeia do Bradesco, com
+    TLS 1.2 ou mais. Como o banco se autentica ao chamar a URL segue sem resposta.
+12. **Sem resposta na documentacao**: como simular pagamento no sandbox, cenarios do Pix de cobranca
+    (a collection do Pix so tem o token), consulta de TED do sandbox, data do CNPJ alfanumerico e o
+    numero do limite de requisicoes. Perguntar a `suportetransacoes_api@bradesco.com.br`.

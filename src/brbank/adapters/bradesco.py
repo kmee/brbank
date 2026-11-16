@@ -125,6 +125,46 @@ ESPECIES = {
     "CC": 31, "BDP": 32, "OUT": 99,
 }  # fmt: skip
 
+# Leiaute de entrada do registro convencional (manual 1.6.4, tabela "Layout de
+# comunicacao - Entrada"). O manual manda informar todos os campos: numerico com 0 e
+# alfanumerico em branco nos que nao se aplicam. Nomes como no exemplo JSON do manual
+# (a tabela traz "FilialCPFCNPJ" e "cdEspecieTitulo" com acento; "mensagem" e a
+# lista `listaMsgs`); `ufSacadorAvalista` e texto, embora a tabela diga numerico.
+_REGISTRO_ALFANUMERICOS = (
+    "debitoAutomatico", "nuCPFCNPJ", "filialCPFCNPJ", "ctrlCPFCNPJ", "nuCliente",
+    "dtEmissaoTitulo", "dtVencimentoTitulo", "controleParticipante",
+    "cdPagamentoParcial", "dataLimiteDesconto1", "dataLimiteDesconto2",
+    "dataLimiteDesconto3", "dtLimiteBonificacao", "nomePagador", "logradouroPagador",
+    "nuLogradouroPagador", "complementoLogradouroPagador", "cepPagador",
+    "complementoCepPagador", "bairroPagador", "municipioPagador", "ufPagador",
+    "nuCpfcnpjPagador", "endEletronicoPagador", "nomeSacadorAvalista",
+    "logradouroSacadorAvalista", "nuLogradouroSacadorAvalista",
+    "complementoLogradouroSacadorAvalista", "bairroSacadorAvalista",
+    "municipioSacadorAvalista", "ufSacadorAvalista", "nuCpfcnpjSacadorAvalista",
+    "enderecoSacadorAvalista",
+)  # fmt: skip
+_REGISTRO_NUMERICOS = (
+    "idProduto", "nuNegociacao", "nuTitulo", "vlNominalTitulo", "cdEspecieTitulo",
+    "tpProtestoAutomaticoNegativacao", "prazoProtestoAutomaticoNegativacao",
+    "qtdePagamentoParcial", "tipoPrazoDecursoTres", "percentualJuros", "vlJuros",
+    "qtdeDiasJuros", "percentualMulta", "vlMulta", "qtdeDiasMulta",
+    "percentualDesconto1", "vlDesconto1", "percentualDesconto2", "vlDesconto2",
+    "percentualDesconto3", "vlDesconto3", "percentualBonificacao", "vlBonificacao",
+    "vlAbatimento", "vlIOF", "tpVencimento", "cdIndCpfcnpjPagador",
+    "bancoDoDebAutomatico", "agenciaDoDebAutomatico", "digitoAgenciaDoDebAutomat",
+    "contaDoDebAutomatico", "razaoDoDebAutomatico", "cepSacadorAvalista",
+    "complementoCepSacadorAvalista", "cdIndCpfcnpjSacadorAvalista",
+)  # fmt: skip
+
+
+def _registro_vazio() -> dict[str, Any]:
+    """Os 69 campos do leiaute, zerados ou em branco."""
+    vazio: dict[str, Any] = dict.fromkeys(_REGISTRO_ALFANUMERICOS, "")
+    vazio.update(dict.fromkeys(_REGISTRO_NUMERICOS, 0))
+    vazio["listaMsgs"] = []
+    return vazio
+
+
 _CENTAVO = Decimal("0.01")
 _MAX_MENSAGENS = 4
 _TAMANHO_MENSAGEM = 80
@@ -543,7 +583,9 @@ class BradescoAdapter(BankAdapter):
         cfg = self._config
         enc = titulo.encargos
         raiz, filial, controle = _decompor(cfg.documento_beneficiario)
-        payload: dict[str, Any] = {
+        # Parte do leiaute inteiro zerado: o manual pede todos os campos, mesmo vazios.
+        payload: dict[str, Any] = _registro_vazio()
+        payload |= {
             "nuCPFCNPJ": raiz,
             "filialCPFCNPJ": filial,
             "ctrlCPFCNPJ": controle,
@@ -558,9 +600,8 @@ class BradescoAdapter(BankAdapter):
             "cdEspecieTitulo": ESPECIES[cfg.especie],
             **self._pagador(titulo.pagador),
         }
-        numero = self._gerado(titulo)
-        if numero is not None:
-            payload["nuTitulo"] = numero
+        # 0 deixa o banco gerar o nosso numero, como no exemplo do manual.
+        payload["nuTitulo"] = self._gerado(titulo) or 0
         # O manual pede os dias junto com o percentual (CBTT0505).
         if enc.multa_percentual:
             payload["percentualMulta"] = self._percentual(enc.multa_percentual, "multa")

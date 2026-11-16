@@ -45,6 +45,18 @@ forma. Por isso o teste aceita erro de leitura do adapter sobre dado aleatorio (
 Sem prova no sandbox: o OAuth de producao do Sicoob (sem `client_secret`, mTLS) e os escopos
 (duvida 8 e 2 abaixo); o token fixo nem e conferido pelo mock.
 
+## Simulador do Bradesco (2026-11-15)
+
+O sandbox do Bradesco so responde a cenarios prontos; a collection do Pix dele so tem o token. O
+exemplo-padrao da especificacao do BACEN para `cobv` (vencimento 2026-12-31, R$ 123,45, devedor
+Francisco da Silva, chave `5f84a4c5-c5cb-4599-9f13-7eb4d419dacc`) e aceito: HTTP 200, `ATIVA`. O
+exemplo de `cob` (POST e PUT) volta 422, "nao atende aos cenarios existentes para Sandbox". Pela
+conexao do Odoo, com esse corpo no lugar do montado pelo adapter (perfil `bradesco`): registro lido
+como `REGISTRADO`, com txid e copia e cola de 197 caracteres em `qrpix-h.bradesco.com.br`; consulta
+do txid lida (o simulador devolve `LIQUIDADO` pronto). O corpo montado pelo adapter (chave da
+conexao, devedor da fatura, `infoAdicionais`) nao passa no simulador, porque os valores nao sao os
+do cenario: so se confirma em producao.
+
 ## Perfis
 
 | Perfil | Auth | Escopo | mTLS | Quirks aplicados |
