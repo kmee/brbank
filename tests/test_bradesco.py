@@ -174,7 +174,7 @@ async def test_payload_de_registro(adapter, falso):
         {"mensagem": "linha um"},
         {"mensagem": "Jose da Conceicao"},
     ]
-    assert "nuTitulo" not in corpo
+    assert corpo["nuTitulo"] == 0  # o banco gera, como no exemplo do manual
     assert registrado.status is StatusCanonico.REGISTRADO
     assert registrado.id_banco == registrado.nosso_numero == "90000000001"
 
@@ -246,7 +246,8 @@ async def test_desconto_abatimento_e_baixa_automatica_no_registro(adapter, falso
     assert corpo["tipoPrazoDecursoTres"] == 30
 
 
-async def test_sem_encargos_nao_envia_grupo(adapter, falso):
+async def test_sem_encargos_vai_o_grupo_zerado(adapter, falso):
+    """Manual 1.6.4: todos os campos do leiaute, numerico 0 e alfanumerico em branco."""
     await adapter.registrar_titulo(fazer_titulo())
     corpo = falso.ultimo_corpo
     for campo in (
@@ -256,9 +257,22 @@ async def test_sem_encargos_nao_envia_grupo(adapter, falso):
         "percentualDesconto1",
         "vlAbatimento",
         "tipoPrazoDecursoTres",
-        "listaMsgs",
+        "bancoDoDebAutomatico",
     ):
-        assert campo not in corpo
+        assert corpo[campo] == 0
+    for campo in ("dataLimiteDesconto1", "debitoAutomatico", "controleParticipante"):
+        assert corpo[campo] == ""
+    assert corpo["listaMsgs"] == []
+
+
+async def test_registro_leva_todo_o_leiaute_do_manual(adapter, falso):
+    """Os 69 campos da tabela de entrada do manual 1.6.4, nem um a mais."""
+    await adapter.registrar_titulo(fazer_titulo())
+    corpo = falso.ultimo_corpo
+    assert len(corpo) == 69
+    assert {"tpVencimento", "nuTitulo", "endEletronicoPagador", "vlIOF"} <= set(corpo)
+    # Do exemplo JSON e da collection, mas fora da tabela: nao vao.
+    assert not {"indicadorMoeda", "prazoBonificacao", "cindcdAceitSacdo"} & set(corpo)
 
 
 async def test_mais_casas_que_o_campo_e_recusado(adapter, falso):
@@ -315,7 +329,7 @@ async def test_email_maior_que_o_campo_nao_vai_cortado(adapter, falso):
     titulo = fazer_titulo()
     pagador = titulo.pagador.model_copy(update={"email": "x" * 71 + "@a.br"})
     await adapter.registrar_titulo(titulo.model_copy(update={"pagador": pagador}))
-    assert "endEletronicoPagador" not in falso.ultimo_corpo
+    assert falso.ultimo_corpo["endEletronicoPagador"] == ""
 
 
 async def test_linha_e_barras_viram_digitos(adapter, falso):
