@@ -87,27 +87,27 @@ CODIGO_BAIXA_PEDIDO = 57
 _PRAZO_DIAS_CORRIDOS = 1
 
 # Tabela 1 - Status do titulo (manual 1.6.4). 1 a 35 e 99: titulo em aberto, mesmo
-# com protesto, sustacao, negativacao ou "pagamento vinculado". Fora da tabela de
-# proposito, viram Validacao para decisao humana (docs/bradesco-duvidas.md): 51 no
-# convencional, 56, 65 a 73, porque o rotulo oficial nao diz se o dinheiro entrou.
+# com protesto, sustacao, negativacao ou "pagamento vinculado". O banco respondeu
+# (DUV-FUNC, 16/11/2026): 51 e "pago via QR Code" tambem no convencional, e 65 e o
+# titulo transferido para a carteira de desconto (28), acompanhado la. Fora da
+# tabela de proposito, viram Validacao para decisao humana (bradesco-duvidas.md):
+# 56 ("cobrado por rastreamento"), 66 a 73: o rotulo nao diz se o dinheiro entrou.
 _EM_ABERTO = (*range(1, 13), *range(14, 36), 99)
-_PAGOS = (13, 61, 62)
-_BAIXADOS_SEM_PAGAMENTO = (52, 53, 54, 55, 57, 58, 59, 60, 63, 64, 98)
+_PAGOS = (13, 51, 61, 62)
+_BAIXADOS_SEM_PAGAMENTO = (52, 53, 54, 55, 57, 58, 59, 60, 63, 64, 65, 98)
 _MAPA_STATUS = {
     **{str(c): StatusCanonico.REGISTRADO for c in _EM_ABERTO},
     **{str(c): StatusCanonico.LIQUIDADO for c in _PAGOS},
     **{str(c): StatusCanonico.BAIXADO for c in _BAIXADOS_SEM_PAGAMENTO},
 }
-TABELA_STATUS = TabelaStatus.criar("2026.10", _MAPA_STATUS)
-# Manual com QR Code: 51 = "por acerto (quando o pagamento ocorre via QR Code)".
-TABELA_STATUS_HIBRIDO = TabelaStatus.criar(
-    "2026.10", {**_MAPA_STATUS, "51": StatusCanonico.LIQUIDADO}
-)
+TABELA_STATUS = TabelaStatus.criar("2026.11", _MAPA_STATUS)
+# O hibrido usa a mesma tabela desde que o 51 vale para os dois produtos.
+TABELA_STATUS_HIBRIDO = TABELA_STATUS
 # O mesmo codStatus diz o canal quando o rotulo oficial o nomeia: 62 "PAGO EM
-# CARTORIO" e, no hibrido, 51 (pagamento via QR Code). 13 e 61 nao dizem: None.
+# CARTORIO" e 51 (pagamento via QR Code). 13 e 61 nao dizem: None.
 CANAIS_LIQUIDACAO = {"62": CanalLiquidacao.CARTORIO, "51": CanalLiquidacao.PIX}
-# Motivo da baixa pelo codStatus (Tabela 1 do manual). 55, 59, 60, 63, 64 e 98
-# viram OUTRO.
+# Motivo da baixa pelo codStatus (Tabela 1 do manual). 55, 59, 60, 63, 64, 65
+# (transferido para desconto) e 98 viram OUTRO.
 MOTIVOS_BAIXA = {
     "52": MotivoBaixa.DUPLICIDADE,
     "53": MotivoBaixa.DECURSO_PRAZO,
