@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from brbank import (
+    CanalLiquidacao,
     Capacidade,
     Encargos,
     Endereco,
@@ -50,8 +51,9 @@ def test_marcado_como_nao_validado_no_sandbox():
 def test_entry_point_e_capacidades(dormir):
     adapter = criar_adapter("sicredi", config())
     assert isinstance(adapter, SicrediAdapter)
-    assert adapter.suporta(Capacidade.BAIXA | Capacidade.ALTERACAO | Capacidade.WEBHOOK)
-    assert not adapter.suporta(Capacidade.PDF)
+    assert adapter.suporta(
+        Capacidade.BAIXA | Capacidade.ALTERACAO | Capacidade.WEBHOOK | Capacidade.PDF
+    )
 
 
 def test_repr_da_config_nao_vaza_segredo():
@@ -241,7 +243,7 @@ async def test_consulta_liquidada_traz_o_detalhe(dormir):
     assert consulta.valor_juros_multa == Decimal("4.10")
     assert consulta.valor_desconto == Decimal("0.50")
     assert consulta.valor_abatimento == Decimal("2.00")
-    # O canal vem na situacao detalhada, que a tabela ainda nao traduz.
+    # LIQUIDADO sem o detalhe do canal: nada inventado.
     assert consulta.canal_liquidacao is None
     assert consulta.valor_tarifa is None
 
@@ -261,6 +263,19 @@ async def test_consulta_mascara_pii_na_resposta_bruta(dormir):
         ("VENCIDO", StatusCanonico.REGISTRADO),
         ("Baixado por solicitação", StatusCanonico.BAIXADO),
         ("L", StatusCanonico.LIQUIDADO),
+        # Enum do OpenAPI publico 3.9.1 (consulta por nosso numero).
+        ("EM CARTEIRA PIX", StatusCanonico.REGISTRADO),
+        ("LIQUIDADO PIX", StatusCanonico.LIQUIDADO),
+        ("LIQUIDADO REDE", StatusCanonico.LIQUIDADO),
+        ("LIQUIDADO COMPE", StatusCanonico.LIQUIDADO),
+        ("LIQUIDADO CARTORIO", StatusCanonico.LIQUIDADO),
+        ("LIQUIDADO CHEQUE", StatusCanonico.LIQUIDADO),
+        ("PROTESTADO", StatusCanonico.REGISTRADO),
+        ("EM CARTORIO", StatusCanonico.REGISTRADO),
+        ("AGUARDANDO ENTRADA EM CARTORIO", StatusCanonico.REGISTRADO),
+        ("AGUARDANDO SUSTACAO DE CARTORIO", StatusCanonico.REGISTRADO),
+        ("NEGATIVADO", StatusCanonico.REGISTRADO),
+        ("REJEITADO", StatusCanonico.REJEITADO),
     ],
 )
 async def test_traducao_de_situacao(dormir, situacao, esperado):
@@ -273,7 +288,7 @@ async def test_traducao_de_situacao(dormir, situacao, esperado):
 async def test_situacao_desconhecida_e_validacao(dormir):
     adapter, falso = montar(dormir)
     reg = await adapter.registrar_titulo(fazer_titulo())
-    falso.boletos[reg.id_banco]["situacao"] = "PROTESTADO"
+    falso.boletos[reg.id_banco]["situacao"] = "EM ANALISE"
     with pytest.raises(Validacao, match="desconhecido"):
         await adapter.consultar_titulo(reg.id_banco)
 
@@ -350,6 +365,48 @@ async def test_instrucao_nao_mapeada(dormir):
         )
 
 
+@pytest.mark.parametrize(
+    "situacao, canal",
+    [
+        ("LIQUIDADO PIX", CanalLiquidacao.PIX),
+        ("LIQUIDADO REDE", CanalLiquidacao.CODIGO_BARRAS),
+        ("LIQUIDADO COMPE", CanalLiquidacao.CODIGO_BARRAS),
+        ("LIQUIDADO CARTORIO", CanalLiquidacao.CARTORIO),
+        ("LIQUIDADO CHEQUE", CanalLiquidacao.OUTRO),
+    ],
+)
+async def test_canal_pela_situacao_liquidada(dormir, situacao, canal):
+    adapter, falso = montar(dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo(valor="150.00"))
+    falso.liquidar(reg.id_banco)
+    falso.boletos[reg.id_banco]["situacao"] = situacao
+    consulta = await adapter.consultar_titulo(reg.id_banco)
+    assert consulta.status is StatusCanonico.LIQUIDADO
+    assert consulta.canal_liquidacao is canal
+    assert consulta.valor_pago == Decimal("150.00")
+
+
+async def test_pdf_do_banco_pela_linha_digitavel(dormir):
+    adapter, falso = montar(dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo())
+    pdf = await adapter.obter_pdf(reg.id_banco)
+    assert pdf.startswith(b"%PDF")
+    # So os digitos da linha digitavel vao na consulta do PDF.
+    linha = falso.boletos[reg.id_banco]["linhaDigitavel"]
+    assert falso.linha_pdf == "".join(c for c in linha if c.isdigit())
+    assert falso.linha_pdf.isdigit()
+    assert falso.content_type_pdf == "application/json"
+    assert ("GET", "/cobranca/boleto/v1/boletos/pdf") in falso.chamadas
+
+
+async def test_pdf_sem_linha_digitavel_e_validacao(dormir):
+    adapter, falso = montar(dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo())
+    falso.boletos[reg.id_banco]["linhaDigitavel"] = None
+    with pytest.raises(Validacao, match="linha digitavel"):
+        await adapter.obter_pdf(reg.id_banco)
+
+
 def webhook(**campos) -> dict:
     return {"nossoNumero": "200000001", "movimento": "LIQUIDACAO_PIX", **campos}
 
@@ -363,6 +420,24 @@ def test_webhook_liquidacao(dormir):
     assert evento.ocorrido_em.year == 2026
     assert evento.resposta_bruta["nome"] == "***"
     assert evento.valor_pago is None
+
+
+@pytest.mark.parametrize(
+    "movimento, esperado",
+    [
+        ("LIQUIDACAO_REDE", StatusCanonico.LIQUIDADO),
+        ("LIQUIDACAO_COMPE_H5", StatusCanonico.LIQUIDADO),
+        ("LIQUIDACAO_COMPE_H6", StatusCanonico.LIQUIDADO),
+        ("LIQUIDACAO_COMPE_H8", StatusCanonico.LIQUIDADO),
+        ("LIQUIDACAO_CARTORIO", StatusCanonico.LIQUIDADO),
+        # Estorno so manda reconsultar.
+        ("ESTORNO_LIQUIDACAO_REDE", StatusCanonico.REGISTRADO),
+    ],
+)
+def test_webhook_eventos_da_contratacao(dormir, movimento, esperado):
+    adapter, _ = montar(dormir)
+    (evento,) = adapter.parse_webhook(webhook(movimento=movimento))
+    assert evento.tipo is esperado
 
 
 def test_webhook_aceita_lista_e_dict(dormir):

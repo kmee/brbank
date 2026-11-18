@@ -6,7 +6,13 @@ from typing import ClassVar
 
 from brbank.capacidades import Capacidade
 from brbank.erros import NaoSuportado
-from brbank.modelos import EventoCanonico, Instrucao, Titulo, TituloRegistrado
+from brbank.modelos import (
+    EventoCanonico,
+    Instrucao,
+    TipoInstrucao,
+    Titulo,
+    TituloRegistrado,
+)
 from brbank.status import TabelaStatus
 
 
@@ -16,6 +22,21 @@ class BankAdapter(ABC):
     tabela_status: ClassVar[TabelaStatus]
     # So vira True depois de rodar contra o ambiente real do banco.
     validado_sandbox: ClassVar[bool] = False
+    # Instrucoes que `enviar_instrucao` executa nesta API; as outras levantam
+    # `NaoSuportado` antes de chamar o banco. None: o adapter nao declarou, e quem
+    # usa a biblioteca trata todas como possiveis.
+    instrucoes: ClassVar[frozenset[TipoInstrucao] | None] = None
+
+    @classmethod
+    def instrucoes_da_config(
+        cls, ajustes: Mapping[str, object]
+    ) -> frozenset[TipoInstrucao] | None:
+        """Instrucoes aceitas com estas configuracoes publicas da conta (sem segredo).
+
+        Por padrao, as da classe; o adapter cujo produto muda o que o banco aceita
+        sobrescreve (ex.: o Bradesco nao protesta o boleto com QR Code).
+        """
+        return cls.instrucoes
 
     def suporta(self, capacidade: Capacidade) -> bool:
         return capacidade in self.capacidades

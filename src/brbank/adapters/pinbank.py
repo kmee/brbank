@@ -37,6 +37,7 @@ from brbank.modelos import (
     EventoCanonico,
     Instrucao,
     Pessoa,
+    TipoInstrucao,
     Titulo,
     TituloRegistrado,
 )
@@ -132,6 +133,7 @@ class PinbankAdapter(BankAdapter):
     banco: ClassVar[str] = "pinbank"
     capacidades: ClassVar[Capacidade] = Capacidade.BAIXA | Capacidade.EMISSAO_ASSINCRONA
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset()
 
     def __init__(
         self,

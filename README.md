@@ -40,6 +40,15 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | publica e terceiros |
 | Unicred (136) | `unicred` | Cobranca, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | oficial |
 
+Cada adapter declara em `instrucoes` (atributo da classe, lido sem instanciar) quais
+`TipoInstrucao` o `enviar_instrucao` executa; as outras levantam `NaoSuportado` antes de chamar o
+banco, e a suite de contrato confere as duas pontas. Quando o produto muda o que o banco aceita, o
+metodo de classe `instrucoes_da_config(ajustes)` responde pelas configuracoes publicas da conta,
+sem segredo (o Bradesco com `hibrido` nao protesta nem negativa). Hoje: prorrogacao, abatimento e baixa em
+Asaas, Banrisul, BB, BTG, Caixa e Sicredi; mais protesto em Itau (com `dias_protesto`),
+Santander e Sicoob; Bradesco tambem negativa (protesto e negativacao so sem QR Code); C6 so
+prorroga e baixa; Unicred so baixa; Inter, PinBank, Safra e o Pix nenhuma.
+
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
 Santander e Efi. Capacidades: Pix cob e cobv, webhook, baixa.

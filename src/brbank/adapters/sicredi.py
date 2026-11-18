@@ -37,6 +37,7 @@ from brbank.capacidades import Capacidade
 from brbank.erros import NaoSuportado, Validacao
 from brbank.mascara import mascarar
 from brbank.modelos import (
+    CanalLiquidacao,
     EventoCanonico,
     Instrucao,
     Pessoa,
@@ -62,28 +63,61 @@ _MAX_EMAIL = 40
 _MAX_MENSAGENS = 4
 _MAX_MENSAGEM = 80
 
-# Campo `situacao` da consulta, comparado sem acento e em maiuscula. As letras
-# `L` e `E` vem de um exemplo de forum (nao oficial): ver docs/sicredi-duvidas.md.
+# Campo `situacao` da consulta, comparado sem acento e em maiuscula: o enum do
+# OpenAPI publico da Cobranca 3.9.1 (developers.sicredi.com.br/public, consulta
+# por nosso numero) e o guia "Situacoes do boleto". O liquidado vem detalhado
+# pelo canal. Protesto, cartorio e negativacao deixam o titulo em aberto (pago
+# depois, chega como LIQUIDADO CARTORIO). As letras `L` e `E` vem de um forum
+# (nao oficial) e ficam por compatibilidade: ver docs/sicredi-duvidas.md.
 TABELA_STATUS = TabelaStatus.criar(
-    "2026.10",
+    "2026.11",
     {
         "EM CARTEIRA": StatusCanonico.REGISTRADO,
+        "EM CARTEIRA PIX": StatusCanonico.REGISTRADO,
         "VENCIDO": StatusCanonico.REGISTRADO,
         "E": StatusCanonico.REGISTRADO,
+        "PROTESTADO": StatusCanonico.REGISTRADO,
+        "EM CARTORIO": StatusCanonico.REGISTRADO,
+        "AGUARDANDO ENTRADA EM CARTORIO": StatusCanonico.REGISTRADO,
+        "AGUARDANDO SUSTACAO DE CARTORIO": StatusCanonico.REGISTRADO,
+        "NEGATIVADO": StatusCanonico.REGISTRADO,
         "LIQUIDADO": StatusCanonico.LIQUIDADO,
+        "LIQUIDADO PIX": StatusCanonico.LIQUIDADO,
+        "LIQUIDADO REDE": StatusCanonico.LIQUIDADO,
+        "LIQUIDADO COMPE": StatusCanonico.LIQUIDADO,
+        "LIQUIDADO CARTORIO": StatusCanonico.LIQUIDADO,
+        "LIQUIDADO CHEQUE": StatusCanonico.LIQUIDADO,
         "L": StatusCanonico.LIQUIDADO,
         "BAIXADO POR SOLICITACAO": StatusCanonico.BAIXADO,
+        "REJEITADO": StatusCanonico.REJEITADO,
     },
 )
 
-# Campo `movimento` do webhook. Os sufixos REDE, COMPE e PIX vem do
-# `tipoLiquidacao` da consulta de liquidados (ACBr); o prefixo e suposicao.
+# Canal pelo sufixo da situacao liquidada. REDE (rede de atendimento) e COMPE
+# (outro banco) sao pagamento pela linha digitavel; cheque fica como OUTRO.
+CANAIS_LIQUIDACAO = {
+    "LIQUIDADO PIX": CanalLiquidacao.PIX,
+    "LIQUIDADO REDE": CanalLiquidacao.CODIGO_BARRAS,
+    "LIQUIDADO COMPE": CanalLiquidacao.CODIGO_BARRAS,
+    "LIQUIDADO CARTORIO": CanalLiquidacao.CARTORIO,
+    "LIQUIDADO CHEQUE": CanalLiquidacao.OUTRO,
+}
+
+# Campo `movimento` do webhook. Eventos da contratacao no OpenAPI publico 3.9.1
+# (LIQUIDACAO_PIX, _REDE, _COMPE_H5, _H6, _H8, _CARTORIO e ESTORNO_LIQUIDACAO_REDE);
+# o corpo do aviso nao esta documentado. O estorno so manda reconsultar, como no
+# Santander; LIQUIDACAO_COMPE sem sufixo fica por compatibilidade.
 TABELA_WEBHOOK = TabelaStatus.criar(
-    "2026.10",
+    "2026.11",
     {
         "LIQUIDACAO_PIX": StatusCanonico.LIQUIDADO,
         "LIQUIDACAO_REDE": StatusCanonico.LIQUIDADO,
         "LIQUIDACAO_COMPE": StatusCanonico.LIQUIDADO,
+        "LIQUIDACAO_COMPE_H5": StatusCanonico.LIQUIDADO,
+        "LIQUIDACAO_COMPE_H6": StatusCanonico.LIQUIDADO,
+        "LIQUIDACAO_COMPE_H8": StatusCanonico.LIQUIDADO,
+        "LIQUIDACAO_CARTORIO": StatusCanonico.LIQUIDADO,
+        "ESTORNO_LIQUIDACAO_REDE": StatusCanonico.REGISTRADO,
     },
 )
 
@@ -196,8 +230,16 @@ class SicrediAdapter(BankAdapter):
         | Capacidade.BAIXA
         | Capacidade.ALTERACAO
         | Capacidade.WEBHOOK
+        | Capacidade.PDF
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+        }
+    )
     # So vira True depois de rodar contra o sandbox real do Sicredi.
     validado_sandbox: ClassVar[bool] = False
 
@@ -346,7 +388,8 @@ class SicrediAdapter(BankAdapter):
             cabecalhos=self._cabecalhos(),
         )
         dados = self._json(resp)
-        status = self.tabela_status.traduzir(_normalizar(dados.get("situacao")))
+        situacao = _normalizar(dados.get("situacao"))
+        status = self.tabela_status.traduzir(situacao)
         liquidado = status is StatusCanonico.LIQUIDADO
         liquidacao = dados.get("dadosLiquidacao") or {}
         detalhe: dict[str, Any] = {}
@@ -355,8 +398,9 @@ class SicrediAdapter(BankAdapter):
             # /public): `dadosLiquidacao` traz juros, multa, desconto e abatimento
             # do pagamento; `dataPrevisaoPagamento` e a "data prevista de credito
             # na conta do beneficiario". O canal vem na `situacao` ("LIQUIDADO
-            # PIX"...), que a tabela de status ainda nao conhece.
+            # PIX"...); o LIQUIDADO sem detalhe fica sem canal.
             detalhe = {
+                "canal_liquidacao": CANAIS_LIQUIDACAO.get(situacao),
                 "data_credito": _data(dados.get("dataPrevisaoPagamento")),
                 "valor_juros_multa": somar_informados(
                     _dinheiro(liquidacao.get("juros")),
@@ -384,6 +428,28 @@ class SicrediAdapter(BankAdapter):
             resposta_bruta=dados,
             **detalhe,
         )
+
+    async def obter_pdf(self, id_banco: str) -> bytes:
+        """PDF do banco (`GET /boletos/pdf?linhaDigitavel=`, OpenAPI 3.9.1).
+
+        A rota pede a linha digitavel, entao o titulo e consultado antes. No
+        sandbox o PDF e o de um boleto pre-montado, nao o do titulo enviado.
+        """
+        titulo = await self.consultar_titulo(id_banco)
+        linha = "".join(c for c in titulo.linha_digitavel or "" if c.isdigit())
+        if not linha:
+            raise Validacao("consulta do Sicredi sem linha digitavel para o PDF")
+        resp = await self._transporte.requisitar(
+            "GET",
+            f"{CAMINHO_BOLETOS}/pdf?{urlencode({'linhaDigitavel': linha})}",
+            operacao="pdf",
+            escopo=ESCOPO_PADRAO,
+            # O contrato da rota exige o Content-Type mesmo sem corpo.
+            cabecalhos={**self._cabecalhos(), "Content-Type": "application/json"},
+        )
+        if not resp.content.startswith(b"%PDF"):
+            raise Validacao("resposta do Sicredi nao contem PDF")
+        return resp.content
 
     async def _patch(
         self, id_banco: str, sufixo: str, operacao: str, corpo: dict[str, Any]
@@ -438,9 +504,10 @@ class SicrediAdapter(BankAdapter):
     ) -> list[EventoCanonico]:
         """Webhook do Sicredi (so funciona em producao; sem assinatura).
 
-        Nao ha como autenticar a origem: o chamador DEVE reconsultar o titulo
-        (`consultar_titulo`) antes de dar como pago. Formato do payload nao
-        confirmado em fonte oficial (ver docs/sicredi-duvidas.md).
+        Nao ha como autenticar a origem (a API nao define assinatura): o chamador
+        DEVE reconsultar o titulo (`consultar_titulo`) antes de dar como pago. Os
+        eventos sao os da contratacao (OpenAPI 3.9.1); o corpo do aviso nao esta
+        documentado (ver docs/sicredi-duvidas.md).
         """
         if isinstance(corpo, bytes | str):
             try:

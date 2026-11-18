@@ -43,6 +43,7 @@ from brbank.modelos import (
     EventoCanonico,
     Instrucao,
     Pessoa,
+    TipoInstrucao,
     Titulo,
     TituloRegistrado,
 )
@@ -235,6 +236,7 @@ class SafraAdapter(BankAdapter):
     # publico (ver docs/safra-duvidas.md).
     capacidades: ClassVar[Capacidade] = Capacidade.NENHUMA
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset()
     # So vira True depois de rodar contra a homologacao real do Safra.
     validado_sandbox: ClassVar[bool] = False
 

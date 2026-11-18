@@ -295,6 +295,15 @@ class ItauAdapter(BankAdapter):
         | Capacidade.EMISSAO_ASSINCRONA
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    # Protesto exige `dias_protesto` na config.
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(
+        {
+            TipoInstrucao.BAIXA,
+            TipoInstrucao.PRORROGACAO,
+            TipoInstrucao.ABATIMENTO,
+            TipoInstrucao.PROTESTO,
+        }
+    )
 
     def __init__(
         self,

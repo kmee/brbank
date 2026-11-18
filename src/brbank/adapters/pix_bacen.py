@@ -53,6 +53,7 @@ from brbank.modelos import (
     Instrucao,
     MotivoBaixa,
     Pessoa,
+    TipoInstrucao,
     Titulo,
     TituloRegistrado,
     somar_informados,
@@ -373,6 +374,7 @@ class PixBacenAdapter(BankAdapter):
         Capacidade.PIX_COB | Capacidade.PIX_COBV | Capacidade.WEBHOOK | Capacidade.BAIXA
     )
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
+    instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset()
 
     def __init__(
         self,

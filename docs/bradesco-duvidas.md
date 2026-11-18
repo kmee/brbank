@@ -203,7 +203,9 @@ Serviram a versao anterior e hoje so confirmam uso. Nenhum campo depende deles.
 3. Certificado A1 **autoassinado** em sandbox, validade de 4 meses a 3 anos, com **nome da empresa e CNPJ
    no CN**. Em producao, A1 de autoridade certificadora, mesmas regras.
 4. Aplicacao e credencial no portal ("Register Application", "Request Credential", modelo **MTLS**): CNPJ,
-   razao social e o certificado publico, **so o corpo, sem cabecalho**. Ate 10 minutos para liberar. O
+   razao social e o certificado publico em **upload** de arquivo .pem, .cer ou .crt (conferido no formulario
+   em 16/11/2026): so o bloco `BEGIN CERTIFICATE`/`END CERTIFICATE`, sem texto antes dele (o "sem
+   cabecalho" do portal; ex.: "Bag Attributes" de exportacao). Ate 10 minutos para liberar. O
    `client_secret` so fica visivel por **3 dias**.
 5. Para producao, ainda: contrato de cobranca ativo, funcionalidade "175 - Registro via Webservice" pedida
    ao gerente e primeiro acesso ao Net Empresa feito.

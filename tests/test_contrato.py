@@ -8,11 +8,22 @@ import itertools
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
 
-from brbank import Capacidade, Duplicado, StatusCanonico, Validacao
+from brbank import (
+    Capacidade,
+    Duplicado,
+    ErroBrbank,
+    Instrucao,
+    NaoSuportado,
+    StatusCanonico,
+    TipoInstrucao,
+    Validacao,
+)
 from brbank.adapters.asaas import AsaasAdapter, AsaasConfig
 from brbank.adapters.banrisul import BanrisulAdapter, BanrisulConfig
 from brbank.adapters.bb import BancoDoBrasilAdapter, BBConfig
@@ -486,6 +497,31 @@ async def test_titulo_inexistente_e_validacao(ambiente):
     if fabrica.status_inexistente is not None:
         assert erro.value.status_http == fabrica.status_inexistente
     assert not erro.value.retryable
+
+
+async def test_instrucoes_declaradas(ambiente):
+    """`instrucoes` diz a verdade: o que fica de fora levanta `NaoSuportado`, e o
+    que esta declarado nunca levanta (pode falhar por outro motivo no falso)."""
+    _, adapter, _ = ambiente
+    assert isinstance(adapter.instrucoes, frozenset)
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    for tipo in TipoInstrucao:
+        instrucao = Instrucao(
+            chave_idempotencia=f"k-{tipo.value}",
+            tipo=tipo,
+            nova_data_vencimento=date.today() + timedelta(days=40),
+            valor=Decimal("1.00"),
+        )
+        if tipo not in adapter.instrucoes:
+            with pytest.raises(NaoSuportado):
+                await adapter.enviar_instrucao(registrado.id_banco, instrucao)
+            continue
+        try:
+            await adapter.enviar_instrucao(registrado.id_banco, instrucao)
+        except NaoSuportado as erro:  # pragma: no cover - falha do teste
+            pytest.fail(f"{adapter.banco} declara {tipo.value}: {erro}")
+        except ErroBrbank:
+            pass
 
 
 async def test_erros_canonicos_herdam_da_base():
