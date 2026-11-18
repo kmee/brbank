@@ -10,12 +10,35 @@ no sandbox/manual oficial antes de `validado_sandbox = True`.
 **Fonte oficial publica achada em 2026-11-11:** `developers.sicredi.com.br/public` publica o
 OpenAPI "API de Cobranca Sicredi v3.9.1" (cada pagina aceita o sufixo `.md`). Dela vem o detalhe
 da liquidacao da consulta (0.0.14): `dadosLiquidacao.juros`, `multa`, `desconto` e `abatimento` e
-`dataPrevisaoPagamento` ("data prevista de credito na conta do beneficiario"). A mesma fonte mostra
-o que ainda falta conferir no adapter: a `situacao` vem detalhada por canal (`LIQUIDADO PIX`,
-`LIQUIDADO REDE`, `LIQUIDADO COMPE`, `LIQUIDADO CARTORIO`, `LIQUIDADO CHEQUE`, `BAIXADO POR
-SOLICITACAO`), que a `TABELA_STATUS` atual recusaria, e os eventos do webhook levam sufixo
-(`LIQUIDACAO_COMPE_H5`, `_H6`, `_H8`, `LIQUIDACAO_CARTORIO`, `ESTORNO_LIQUIDACAO_REDE`), sem o corpo
-do aviso documentado. O canal so entra quando a tabela de status for revista com essa fonte.
+`dataPrevisaoPagamento` ("data prevista de credito na conta do beneficiario").
+
+**Revisto em 18/11/2026 com a mesma fonte** (indice em `developers.sicredi.com.br/public/llms.txt`):
+- `situacao` da consulta: o enum tem 16 valores (`EM CARTEIRA`, `EM CARTEIRA PIX`, `VENCIDO`,
+  `LIQUIDADO` e `LIQUIDADO PIX`/`REDE`/`COMPE`/`CARTORIO`/`CHEQUE`, `BAIXADO POR SOLICITACAO`,
+  `PROTESTADO`, `EM CARTORIO`, `AGUARDANDO ENTRADA EM CARTORIO`, `AGUARDANDO SUSTACAO DE CARTORIO`,
+  `NEGATIVADO`, `REJEITADO`), todos na `TABELA_STATUS` 2026.11. Antes, a liquidacao detalhada por
+  canal era recusada: em producao o boleto pago nao baixaria a fatura. Protesto, cartorio e
+  negativacao ficam REGISTRADO (o guia "Situacoes do boleto" diz que o titulo segue sem pagamento;
+  pago no cartorio, chega `LIQUIDADO CARTORIO`). O canal sai do sufixo (`CANAIS_LIQUIDACAO`).
+- Webhook: eventos da contratacao `LIQUIDACAO_PIX`, `_REDE`, `_COMPE_H5`, `_H6`, `_H8`,
+  `_CARTORIO` e `ESTORNO_LIQUIDACAO_REDE` (este so manda reconsultar). Somente producao, sem
+  assinatura padrao (o guia manda proteger o endpoint por cabecalho e reconsultar). O corpo do
+  aviso de cobranca continua sem documentacao.
+- PDF: `GET /cobranca/boleto/v1/boletos/pdf?linhaDigitavel=` devolve o PDF (2a via); o adapter
+  declara `PDF` e consulta a linha digitavel antes.
+- Sandbox: o guia de inicio ("Retornos do Sandbox sao default") diz que a consulta por nosso numero
+  e a impressao devolvem dados pre-montados, nao os do cadastro. Na base local de testes, todas as
+  faturas receberam o mesmo boleto (R$ 1,77, linha digitavel 74891121150023100718882848251011287560000000177,
+  digitos verificadores conferidos e validos) e a consulta respondeu LIQUIDADO. PDF, codigos e
+  liquidacao reais so em producao.
+- Sandbox, 18/11/2026, direto pelo adapter: o registro devolve sempre o nosso numero 211001292
+  com codigo de barras de DV geral 7 (o certo e 8, R$ 99,89) e linha digitavel com DV do 2o campo
+  9 (o certo e 7) que nem corresponde ao codigo de barras (R$ 0,50, outro campo livre); a consulta
+  devolve outro boleto (211002310, R$ 1,77, campo livre de cooperativa 0718, posto 82, beneficiario
+  84825), LIQUIDADO com valor 90; e o PDF dessa linha digitavel responde HTTP 401 "Codigo de
+  beneficiario diferente do beneficiario do usuario" (o usuario de teste e 6789/03/12345), com ou
+  sem `Content-Type` e `codigoBeneficiario`. Ou seja, o PDF nao tem como ser testado no sandbox.
+  Levado ao chamado do Sicredi.
 
 **Sandbox, 15/11/2026 (Odoo pelo `l10n_br_payment_brbank`):** token aceito, registro recusado com
 HTTP 400 "O campo especie documento contem um valor invalido": o `especieDocumento` e obrigatorio
@@ -55,10 +78,8 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
    cidade 25, nome 40, email 40, mensagens 4 x 80: limites do ACBr, que trunca em
    silencio (o adapter tambem). Telefone nao existe no modelo canonico.
 8. **CNPJ alfanumerico**: o Sicredi aceita? Enviado como esta em `documento`.
-9. **`situacao` da consulta.** O ACBr compara por trecho (`EM CARTEIRA`, `VENCIDO`,
-   `BAIXADO POR SOLICITACAO`, `LIQUIDADO`). Um forum relata que a API passou a devolver
-   uma letra so (`L` liquidado, `E` aberto); mapeadas, sem fonte oficial. Outras
-   situacoes (protestado, negativado, rejeitado) levantam `Validacao`.
+9. **`situacao` da consulta.** Resolvida pelo enum do OpenAPI 3.9.1 (ver acima). As letras
+   `L` e `E` de um forum seguem mapeadas por compatibilidade, sem fonte oficial.
 10. **Valor e data pago**: `dadosLiquidacao.valor` e `.data` (datetime, usamos os 10
     primeiros caracteres). Se vier fora disso, `valor_pago` fica nulo.
 11. **Baixa.** Responde `statusComando`/`transactionId`/`tipoMensagem`: parece comando
@@ -66,15 +87,13 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
     Nao declaramos `INSTRUCAO_ASSINCRONA`; revisar com o sandbox.
 12. **Registro sincrono?** A resposta traz linha digitavel e codigo de barras, entao
     devolvemos `REGISTRADO`. Nao declaramos `EMISSAO_ASSINCRONA`.
-13. **PDF.** Conector PHP cita segunda via por `linhaDigitavel`, rota nao confirmada:
-    nao declaramos `PDF`.
-14. **Webhook.** Sem assinatura (reconsultar sempre) e so funciona em producao (PRD),
-    entao o fluxo nao pode ser testado no sandbox. O ACBr nao tem webhook; o formato
-    do payload (`nossoNumero`, `movimento`, `dataEvento`) e o prefixo
-    `LIQUIDACAO_` de `movimento` sao suposicao, com os sufixos `PIX`, `REDE`, `COMPE`
-    vindos do `tipoLiquidacao` do ACBr. Movimento desconhecido (inclusive eventos que
-    nao sao liquidacao) levanta `Validacao`: o chamador deve tratar como "ignorar e
-    reconsultar", ate o catalogo oficial entrar na tabela.
+13. **PDF.** Resolvida: `GET /boletos/pdf?linhaDigitavel=` (OpenAPI 3.9.1). No sandbox vem o
+    PDF do boleto pre-montado.
+14. **Webhook.** Sem assinatura (reconsultar sempre) e so funciona em producao, entao o
+    fluxo nao pode ser testado no sandbox. Os eventos sao os da contratacao (OpenAPI 3.9.1,
+    na `TABELA_WEBHOOK`); o formato do corpo (`nossoNumero`, `movimento`, `dataEvento`)
+    continua suposicao: pergunta do chamado ao Sicredi. Movimento desconhecido levanta
+    `Validacao`: o chamador trata como "ignorar e reconsultar".
 15. **Idempotencia.** Sem `nossoNumero` enviado, repetir o POST pode duplicar o boleto;
     ha cache e lock por `chave_idempotencia` no processo, e o `Orquestrador` cobre
     entre processos. `seuNumero` nao e unico no banco (nao confirmado).

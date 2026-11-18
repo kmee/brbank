@@ -20,6 +20,8 @@ class SicrediFalso:
         self.cabecalhos: list[tuple[str, str, dict[str, str]]] = []
         self.ultimo_corpo: dict = {}
         self.baixa_pendente = False
+        self.linha_pdf: str | None = None
+        self.content_type_pdf: str | None = None
 
     def cliente(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.tratar))
@@ -74,6 +76,15 @@ class SicrediFalso:
                     "txid": "tx123",
                     "qrCode": "00020126...",
                 },
+            )
+        if request.method == "GET" and caminho == BASE + "/pdf":
+            consulta = parse_qs(request.url.query.decode())
+            self.linha_pdf = consulta["linhaDigitavel"][0]
+            self.content_type_pdf = request.headers.get("content-type")
+            return httpx.Response(
+                200,
+                content=b"%PDF-1.4 boleto",
+                headers={"content-type": "application/octet-stream"},
             )
         if request.method == "GET" and caminho == BASE:
             consulta = parse_qs(request.url.query.decode())
