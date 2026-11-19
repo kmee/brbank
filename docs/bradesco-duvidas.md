@@ -47,20 +47,19 @@ certificado do host nao fecha a cadeia em todo cliente Python; `curl` le normal.
 | Negociacao | 18 posicoes no registro (agencia 4, zeros 7, conta 7); 11 no resto |
 | Especies | Tabela de siglas identica a usada (DM = 2...) |
 | Juros e multa | Juros mensais (valor x % / 30 ao dia); multa unica, em percentual |
-| Nosso numero | Ate 11 digitos, opcional no convencional (`nuTitulo`): o banco gera se faltar |
+| Nosso numero | Ate 11 digitos, opcional no convencional (`nuTitulo`); o banco recomenda a empresa informar, para um retry nao duplicar o titulo (DUV-FUNC) |
 | Janela | 00:00 a 03:00 a API pode ficar indisponivel |
 | Erros | Envelope `status`, `transacao`, `mensagem`, `causa` (400, 412, 500); 422 `codigo`/`mensagem`; 401 com 3 motivos; 403 falta vincular o recurso no portal |
 | PDF | Nao existe. A "2a via" e a consulta; `base64` no hibrido e so a imagem do QR Code |
 
-### Tabela de status (`codStatus`), versao 2026.10
+### Tabela de status (`codStatus`), versao 2026.11
 
 | Codigos | Rotulo oficial | Canonico |
 | --- | --- | --- |
 | 1 a 12, 14 a 35, 99 | a vencer, pagamento vinculado, protesto, cartorio, sustacao, baixa solicitada, pagamento retido, negativacao, reativacao | `REGISTRADO` |
-| 13, 61, 62 | pago no dia, pago, pago em cartorio | `LIQUIDADO` |
-| 52, 53, 54, 55, 57, 58, 59, 60, 63, 64, 98 | registro duplicado, decurso, medida judicial, remessa, a pedido, protestado, devolvido, franco de pagamento, sustado, duplicado | `BAIXADO` |
-| 51 no hibrido | "por acerto (quando o pagamento ocorre via QR Code)" | `LIQUIDADO` |
-| 51 no convencional, 56, 65 a 73 | ver "O que continua aberto", item 1 | `Validacao` (fora da tabela) |
+| 13, 51, 61, 62 | pago no dia, pago via QR Code (convencional e hibrido, DUV-FUNC), pago, pago em cartorio | `LIQUIDADO` |
+| 52, 53, 54, 55, 57, 58, 59, 60, 63, 64, 65, 98 | registro duplicado, decurso, medida judicial, remessa, a pedido, protestado, devolvido, franco de pagamento, sustado, transferido para desconto (carteira 28, DUV-FUNC), duplicado | `BAIXADO` |
+| 56, 66 a 73 | ver "O que continua aberto", item 1 | `Validacao` (fora da tabela) |
 
 No hibrido, o FAQ oficial diz que o Pix aparece como "pago no dia" em ate 20 minutos e o titulo e
 baixado no processamento da noite: a sequencia e 13 e depois 51.
@@ -154,10 +153,10 @@ Regra aplicada: na duvida, a opcao cuja falha e uma recusa, nunca um valor errad
 Nada aqui foi inventado: a fonte oficial nao responde. Quem responde: `suporte.api@bradesco.com.br`,
 `suportetransacoes_api@bradesco.com.br` (erros negociais), `governancaapis@bradesco.com.br` (webhook).
 
-1. **Status sem prova de pagamento.** 51 no convencional ("POR ACERTO", sem a observacao do hibrido);
-   56, 68, 69 ("COBRADO - POR RASTREAMENTO", "POR BAIXA MANUAL"); 66, 67 ("CREDITO EXDD"); 65, 70 a 73
-   (transferencia para desconto ou de recebiveis). O manual so traz o rotulo. Ficam como `Validacao`,
-   para decisao humana: tratar como pago ou como baixa podem estar ambos errados.
+1. **Status sem prova de pagamento.** 56, 68, 69 ("COBRADO - POR RASTREAMENTO", "POR BAIXA MANUAL");
+   66, 67 ("CREDITO EXDD"); 70 a 73 (transferencia de recebiveis; o banco descreveu o 73 so como
+   "DEV. FUNDOS RECEB./COBRANCA"). Ficam como `Validacao`, para decisao humana: tratar como pago ou
+   como baixa podem estar ambos errados. O 51 e o 65 foram resolvidos no DUV-FUNC (ver abaixo).
 2. **Escala de `vlrPagto`.** E o unico valor decimal da consulta (`number`, exemplo `0.00`), lido como
    reais; os demais sao inteiros em centavos. O exemplo oficial so mostra zero.
    `vlr_pagto_em_centavos=True` troca.
@@ -277,7 +276,7 @@ webhook, Pix 1.1.1, pagamento de boleto 1.0.0 e TED 1.0.0):
 7. **Duplicidade**: codigo 69 "titulo ja cadastrado" e 86 "registro duplicado" na tabela de retorno; sem
    exemplo de corpo, entao segue sem mapeamento para `Duplicado`.
 8. **`vlrPagto`**: a unidade nao e informada; a lista de liquidados traz inteiros (centavos).
-9. **Status 51 (convencional), 56, 65 a 73**: so os rotulos; pago ou baixado segue sem resposta.
+9. **Status 56, 66 a 73**: so os rotulos; pago ou baixado segue sem resposta (51 e 65 resolvidos).
 10. **`txId` do hibrido**: o registro devolve `iconcPgtoSpi` ("TXID do titulo", 35 posicoes), que o
     adapter ja guarda; a consulta nao traz.
 11. **Webhook**: rotas `/cadastrar` (sandbox) e `/executar` (producao) confirmadas; o cliente envia um
@@ -286,3 +285,30 @@ webhook, Pix 1.1.1, pagamento de boleto 1.0.0 e TED 1.0.0):
 12. **Sem resposta na documentacao**: como simular pagamento no sandbox, cenarios do Pix de cobranca
     (a collection do Pix so tem o token), consulta de TED do sandbox, data do CNPJ alfanumerico e o
     numero do limite de requisicoes. Perguntar a `suportetransacoes_api@bradesco.com.br`.
+
+## Respostas do banco (16/11/2026)
+
+**DUV-HML (suporte.api):** o sandbox usa dados e cenarios fixos e serve so para validar a conexao com o
+gateway. So aceita as requisicoes da collection, com os mesmos valores; o banco prepara um ambiente com
+cenarios dinamicos, sem prazo. Os campos do manual valem em producao, em situacoes especificas. O 422 da
+cob (PUT /v2/cob/{txid}) com o exemplo do BACEN e falha da collection do banco, que vai corrigir; a
+estrutura vale para producao. Nao ha como simular pagamento de boleto nem de Pix.
+
+**DUV-FUNC (Transacoes API):**
+- `vlNominalTitulo`: texto com duas casas ("150.00"); aceita "0" e "0.00". E o modo padrao do adapter
+  (`valor_em_centavos=False`).
+- Percentuais de juros, multa e desconto: inteiros de 0 a 999 com ate duas casas ("2.00"); mais casas
+  sao truncadas, sem arredondar. E o modo padrao (`_percentual`).
+- Campos: basta informar os obrigatorios; campo obrigatorio faltando volta erro.
+- `nuTitulo`: o banco recomenda a empresa informar o nosso numero, para um retry nao duplicar o titulo.
+- Titulo ja cadastrado: respondeu so "69", sem o corpo.
+- `codStatus`: 51 pago via QR Code; 56 "COBRADO - POR RASTREAMENTO"; 65 transferido para desconto
+  (acompanhar na carteira 28); 73 "DEV. FUNDOS RECEB./COBRANCA". A unidade de `vlrPagto` nao foi
+  respondida.
+- CNPJ alfanumerico: sem previsao.
+- Sem resposta, "verificar com suporte.api": como o banco se autentica no webhook, modelo de software
+  house e limite de requisicoes por credencial.
+
+**Portal, producao:** as subscricoes de producao da aplicacao da KMEE foram rejeitadas com "CNPJ
+informado no cadastro do Portal nao possui relacionamento com o Bradesco". Em producao, cada cliente
+cria a propria organizacao, aplicacao e credencial, com o proprio certificado.

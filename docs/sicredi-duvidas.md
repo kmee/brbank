@@ -39,6 +39,11 @@ da liquidacao da consulta (0.0.14): `dadosLiquidacao.juros`, `multa`, `desconto`
   beneficiario diferente do beneficiario do usuario" (o usuario de teste e 6789/03/12345), com ou
   sem `Content-Type` e `codigoBeneficiario`. Ou seja, o PDF nao tem como ser testado no sandbox.
   Levado ao chamado do Sicredi.
+- Resposta do chamado 250169 (Portal do Desenvolvedor, 18/11/2026, fechado como resolvido): o boleto
+  pre-montado e o comportamento esperado ("os dados sao mockados"). PDF no sandbox, situacao detalhada
+  em producao e validacao antes de producao: "precisa validar com a cooperativa". Nao ha exemplo do corpo
+  do aviso por evento do webhook. Pix: a cooperativa confirma os escopos contratados, o associado recebe
+  por e-mail um "ID de Adesao", so entao a API Pix aparece no catalogo; o pedido da API Pix e por chamado.
 
 **Sandbox, 15/11/2026 (Odoo pelo `l10n_br_payment_brbank`):** token aceito, registro recusado com
 HTTP 400 "O campo especie documento contem um valor invalido": o `especieDocumento` e obrigatorio

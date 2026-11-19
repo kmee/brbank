@@ -496,7 +496,9 @@ async def test_vlr_pagto_em_centavos_quando_configurado(falso, dormir):
         (13, StatusCanonico.LIQUIDADO),
         (61, StatusCanonico.LIQUIDADO),
         (62, StatusCanonico.LIQUIDADO),
+        (51, StatusCanonico.LIQUIDADO),  # pago via QR Code (DUV-FUNC)
         (53, StatusCanonico.BAIXADO),
+        (65, StatusCanonico.BAIXADO),  # transferido para a carteira de desconto
         (57, StatusCanonico.BAIXADO),
         (58, StatusCanonico.BAIXADO),
         (98, StatusCanonico.BAIXADO),
@@ -508,9 +510,7 @@ async def test_tabela_oficial_de_status(adapter, falso, codigo, esperado):
     assert (await adapter.consultar_titulo(registrado.id_banco)).status is esperado
 
 
-@pytest.mark.parametrize(
-    "codigo", [51, 56, 65, 66, 67, 68, 69, 70, 71, 72, 73, 36, 74, None]
-)
+@pytest.mark.parametrize("codigo", [56, 66, 67, 68, 69, 70, 71, 72, 73, 36, 74, None])
 async def test_status_sem_prova_de_pagamento_vira_validacao(adapter, falso, codigo):
     registrado = await adapter.registrar_titulo(fazer_titulo())
     falso.titulos[registrado.id_banco]["codStatus"] = codigo
@@ -520,8 +520,8 @@ async def test_status_sem_prova_de_pagamento_vira_validacao(adapter, falso, codi
 
 def test_tabela_cobre_exatamente_os_codigos_decididos():
     cobertos = {int(c) for c in TABELA_STATUS.mapa}
-    assert not cobertos & {51, 56, 65, 66, 67, 68, 69, 70, 71, 72, 73}
-    assert cobertos >= {*range(1, 36), 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64}
+    assert not cobertos & {56, 66, 67, 68, 69, 70, 71, 72, 73}
+    assert cobertos >= {*range(1, 36), *range(51, 56), *range(57, 66)}
 
 
 async def test_consulta_com_erro_no_envelope(dormir):
@@ -932,6 +932,17 @@ async def test_pago_em_cartorio_diz_o_canal(adapter, falso):
     assert consultado.motivo_baixa is None
 
 
+async def test_convencional_51_e_pix(adapter, falso):
+    # Banco (DUV-FUNC, 16/11/2026): 51 e o titulo pago via QR Code.
+    registrado = await adapter.registrar_titulo(fazer_titulo())
+    falso.titulos[registrado.id_banco].update(
+        codStatus=51, dtPagto=9122026, vlrPagto=150.0
+    )
+    consultado = await adapter.consultar_titulo(registrado.id_banco)
+    assert consultado.status is StatusCanonico.LIQUIDADO
+    assert consultado.canal_liquidacao is CanalLiquidacao.PIX
+
+
 async def test_hibrido_51_e_pix(hibrido, falso):
     # Manual com QR Code: 51 = por acerto, quando o pagamento ocorre via QR Code.
     registrado = await hibrido.registrar_titulo(fazer_titulo())
@@ -951,6 +962,7 @@ async def test_hibrido_51_e_pix(hibrido, falso):
         (57, MotivoBaixa.SOLICITACAO),
         (58, MotivoBaixa.PROTESTO),
         (59, MotivoBaixa.OUTRO),
+        (65, MotivoBaixa.OUTRO),
     ],
 )
 async def test_motivo_da_baixa_pelo_status(adapter, falso, codigo, motivo):
