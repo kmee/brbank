@@ -229,16 +229,22 @@ class _OAuth2Cacheado(Autenticador):
                 resposta_bruta=resp.text,
             )
         try:
-            corpo = resp.json()
-            valor = corpo["access_token"]
+            valor, duracao_bruta = self._ler_token(resp.json())
         except (ValueError, KeyError, TypeError) as exc:
             raise Validacao(
                 "resposta de token sem access_token", status_http=resp.status_code
             ) from exc
-        # O PinBank devolve `expire_in` (sem o s); os demais, `expires_in`.
-        duracao = int(corpo.get("expires_in") or corpo.get("expire_in") or 3600)
+        duracao = int(duracao_bruta)
         vida = max(duracao - self._margem, self._margem)
         return _Token(valor, self._relogio() + vida)
+
+    def _ler_token(self, corpo: Any) -> tuple[str, Any]:
+        """Token e duracao (segundos) da resposta. Padrao OAuth2: `access_token`
+        e `expires_in`; o PinBank devolve `expire_in` (sem o s)."""
+        valor = corpo["access_token"]
+        if not isinstance(valor, str) or not valor:
+            raise KeyError("access_token")
+        return valor, corpo.get("expires_in") or corpo.get("expire_in") or 3600
 
 
 class OAuth2ClientCredentials(_OAuth2Cacheado):
@@ -313,6 +319,43 @@ class OAuth2ClientCredentialsSemSegredo(_OAuth2Cacheado):
 
     def _formulario(self) -> dict[str, str]:
         return {"client_id": self._client_id, "grant_type": "client_credentials"}
+
+
+class ChaveParaToken(_OAuth2Cacheado):
+    """Chave fixa trocada por um token de vida curta, sem formulario.
+
+    O Safrapay recebe o MerchantToken cru no `Authorization` (sem `Bearer` e sem
+    corpo) e devolve `accessToken`, um JWT de 30 minutos sem `expires_in`. O
+    refresh token que vem junto e ignorado: com varios processos, pedir de novo
+    com a chave e mais simples que guardar um refresh que muda a cada uso.
+    """
+
+    def __init__(
+        self,
+        *,
+        chave: str,
+        cabecalho: str = "Authorization",
+        campo_token: str = "accessToken",
+        duracao_s: int = 1800,
+        **comum: Any,
+    ) -> None:
+        super().__init__(**comum)
+        self._chave = chave
+        self._cabecalho = cabecalho
+        self._campo_token = campo_token
+        self._duracao_s = duracao_s
+
+    def _formulario(self) -> dict[str, str]:
+        return {}
+
+    def _argumentos_post(self, dados: dict[str, str]) -> dict[str, Any]:
+        return {"headers": {**self._cabecalhos_pedido(), self._cabecalho: self._chave}}
+
+    def _ler_token(self, corpo: Any) -> tuple[str, Any]:
+        valor = corpo[self._campo_token]
+        if not isinstance(valor, str) or not valor:
+            raise KeyError(self._campo_token)
+        return valor, self._duracao_s
 
 
 class TokenEstatico(Autenticador):
