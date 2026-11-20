@@ -51,7 +51,7 @@ Cada adapter declara em `instrucoes` (atributo da classe, lido sem instanciar) q
 banco, e a suite de contrato confere as duas pontas. Quando o produto muda o que o banco aceita, o
 metodo de classe `instrucoes_da_config(ajustes)` responde pelas configuracoes publicas da conta,
 sem segredo (o Bradesco com `hibrido` nao protesta nem negativa). Hoje: prorrogacao, abatimento e baixa em
-Asaas, Banrisul, BB, BTG, Caixa e Sicredi; mais protesto em Itau (com `dias_protesto`),
+Asaas, Banrisul, BB, BTG, Caixa e Sicredi; mais protesto em Itau e BB (com `dias_protesto`),
 Santander e Sicoob; Bradesco tambem negativa (protesto e negativacao so sem QR Code); C6 so
 prorroga e baixa; Safrapay prorroga e baixa o boleto e so baixa o Pix; Unicred so baixa; Inter, PinBank, Safra e o Pix nenhuma.
 

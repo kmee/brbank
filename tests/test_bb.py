@@ -322,6 +322,33 @@ async def test_instrucoes_invalidas_ou_nao_suportadas(adapter):
         )
 
 
+async def test_protesto_com_dias_da_config(falso, dormir):
+    adapter = BancoDoBrasilAdapter(
+        config(dias_protesto=5),
+        client=falso.cliente(),
+        dormir=dormir,
+        hoje=lambda: date(2026, 11, 1),
+    )
+    r = await adapter.registrar_titulo(titulo_numerico())
+    await adapter.enviar_instrucao(
+        r.id_banco, Instrucao(chave_idempotencia="p", tipo=TipoInstrucao.PROTESTO)
+    )
+    assert falso.ultimo_corpo == {
+        "numeroConvenio": 1234567,
+        "indicadorProtestar": "S",
+        "protesto": {"quantidadeDiasProtesto": 5},
+    }
+
+
+def test_protesto_so_e_oferecido_com_dias():
+    sem = BancoDoBrasilAdapter.instrucoes_da_config({})
+    com = BancoDoBrasilAdapter.instrucoes_da_config({"dias_protesto": 5})
+    assert TipoInstrucao.PROTESTO not in sem
+    assert com == sem | {TipoInstrucao.PROTESTO}
+    with pytest.raises(Validacao, match="dias_protesto"):
+        config(dias_protesto=0)
+
+
 async def test_instrucao_baixa_delega_para_baixar(adapter, falso):
     r = await adapter.registrar_titulo(titulo_numerico())
     baixado = await adapter.enviar_instrucao(

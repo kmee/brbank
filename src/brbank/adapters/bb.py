@@ -138,10 +138,15 @@ class BBConfig:
     # None: sandbox manda as credenciais no corpo e producao usa Basic (ACBr).
     credenciais_no_corpo: bool | None = None
     requisicoes_por_segundo: float | None = None
+    # Dias para o cartorio na instrucao de protesto (`protesto.quantidadeDiasProtesto`
+    # do PATCH). None: o protesto nao e oferecido.
+    dias_protesto: int | None = None
 
     def __post_init__(self) -> None:
         if self.ambiente not in ("producao", "sandbox"):
             raise Validacao(f"ambiente BB invalido: {self.ambiente!r}")
+        if self.dias_protesto is not None and self.dias_protesto < 1:
+            raise Validacao("BB: dias_protesto deve ser positivo")
         if not self.convenio.isdigit() or len(self.convenio) not in (6, 7):
             raise Validacao("convenio BB deve ter 6 ou 7 digitos numericos")
         if self.especie not in TIPOS_TITULO:
@@ -292,6 +297,16 @@ class BancoDoBrasilAdapter(BankAdapter):
         }
     )
     validado_sandbox: ClassVar[bool] = True
+
+    @classmethod
+    def instrucoes_da_config(
+        cls, ajustes: Mapping[str, object]
+    ) -> frozenset[TipoInstrucao] | None:
+        """Protesto so com `dias_protesto` na configuracao: a instrucao canonica nao
+        traz os dias, e o PATCH do BB os exige."""
+        if ajustes.get("dias_protesto"):
+            return cls.instrucoes | {TipoInstrucao.PROTESTO}
+        return cls.instrucoes
 
     def __init__(
         self,
@@ -540,6 +555,11 @@ class BancoDoBrasilAdapter(BankAdapter):
             else:
                 corpo["indicadorIncluirAbatimento"] = "S"
                 corpo["abatimento"] = {"valorAbatimento": valor}
+        elif instrucao.tipo is TipoInstrucao.PROTESTO:
+            if self._config.dias_protesto is None:
+                raise NaoSuportado("bb: protesto exige dias_protesto na BBConfig")
+            corpo["indicadorProtestar"] = "S"
+            corpo["protesto"] = {"quantidadeDiasProtesto": self._config.dias_protesto}
         else:
             raise NaoSuportado(f"bb: instrucao {instrucao.tipo.value} nao implementada")
         await self._chamar(
