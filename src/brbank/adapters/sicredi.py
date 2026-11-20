@@ -225,6 +225,7 @@ def _pagador(pessoa: Pessoa) -> dict[str, Any]:
 
 class SicrediAdapter(BankAdapter):
     banco: ClassVar[str] = "sicredi"
+    nome_exibicao: ClassVar[str] = "Sicredi (748)"
     capacidades: ClassVar[Capacidade] = (
         Capacidade.HIBRIDO
         | Capacidade.BAIXA

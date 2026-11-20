@@ -20,6 +20,12 @@ class BankAdapter(ABC):
     banco: ClassVar[str]
     capacidades: ClassVar[Capacidade]
     tabela_status: ClassVar[TabelaStatus]
+    # Nome para telas (ex.: "Itaú (341)"); vazio: quem exibe usa `banco`.
+    nome_exibicao: ClassVar[str] = ""
+    # Digitos do nosso numero que o gerador do chamador deve produzir, nos
+    # adapters cuja configuracao aceita `gerar_nosso_numero`. None: o banco ou
+    # o gateway gera o numero (ou o adapter nao aceita gerador).
+    digitos_nosso_numero: ClassVar[int | None] = None
     # So vira True depois de rodar contra o ambiente real do banco.
     validado_sandbox: ClassVar[bool] = False
     # Instrucoes que `enviar_instrucao` executa nesta API; as outras levantam

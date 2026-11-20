@@ -256,6 +256,7 @@ def _cliente(pessoa: Pessoa, *, com_endereco: bool) -> dict[str, Any]:
 
 class SafrapayAdapter(BankAdapter):
     banco: ClassVar[str] = "safrapay"
+    nome_exibicao: ClassVar[str] = "Safrapay (gateway do Safra)"
     capacidades: ClassVar[Capacidade] = (
         Capacidade.ALTERACAO
         | Capacidade.BAIXA

@@ -41,6 +41,11 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | publica e terceiros |
 | Unicred (136) | `unicred` | Cobranca, API key + usuario | baixa, PDF, webhook cifrado, emissao assincrona | oficial |
 
+Cada adapter declara tambem, como atributos da classe, `nome_exibicao` (o nome que as telas
+mostram, ex.: "Itaú (341)") e `digitos_nosso_numero` (quantos digitos o `gerar_nosso_numero` da
+configuracao deve produzir; `None` quando o banco ou o gateway gera o numero). Os perfis Pix tem
+`nome_exibicao` tambem. Quem integra le dali, sem tabela propria por banco.
+
 Cada adapter declara em `instrucoes` (atributo da classe, lido sem instanciar) quais
 `TipoInstrucao` o `enviar_instrucao` executa; as outras levantam `NaoSuportado` antes de chamar o
 banco, e a suite de contrato confere as duas pontas. Quando o produto muda o que o banco aceita, o

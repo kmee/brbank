@@ -264,6 +264,8 @@ def _ocorrencias(resposta_bruta: Any) -> list[dict[str, Any]]:
 
 class BanrisulAdapter(BankAdapter):
     banco: ClassVar[str] = "banrisul"
+    nome_exibicao: ClassVar[str] = "Banrisul (041)"
+    digitos_nosso_numero: ClassVar[int | None] = 8
     validado_sandbox: ClassVar[bool] = False
     capacidades: ClassVar[Capacidade] = (
         Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA | Capacidade.PDF

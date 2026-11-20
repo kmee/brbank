@@ -437,6 +437,7 @@ def _pagamento(dados: dict[str, Any]) -> tuple[Decimal | None, date | None]:
 
 class UnicredAdapter(BankAdapter):
     banco: ClassVar[str] = "unicred"
+    nome_exibicao: ClassVar[str] = "Unicred (136)"
     validado_sandbox: ClassVar[bool] = False
     capacidades: ClassVar[Capacidade] = (
         Capacidade.BAIXA
