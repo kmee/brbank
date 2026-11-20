@@ -35,6 +35,7 @@ do banco e no swagger publicado. O detalhe e as duvidas de cada banco estao em
 | Caixa (104) | `caixa` | SIGCB, webservice SOAP | hibrido, alteracao, baixa | oficial (WSDL) |
 | Itau (341) | `itau` | Cobranca v2 (CASH) e Bolecode | hibrido (com `bolecode`), alteracao, baixa, emissao assincrona | publica e terceiros (especificacao exige login) |
 | Safra (422) | `safra` | Cobranca v1 | so registro e consulta | publica e terceiros |
+| Safrapay (gateway Safra) | `safrapay` | Gateway v2: boleto ou Pix (QR de 30 min), MerchantToken | alteracao, baixa, PDF, webhook, Pix cob, emissao e instrucao assincronas | oficial (portal de desenvolvedores) |
 | Santander (033) | `santander` | Gestao de Boletos v2 (workspace) | hibrido (com chave Pix), alteracao, baixa, PDF, webhook | oficial |
 | Sicoob (756) | `sicoob` | Cobranca v3, boleto hibrido | hibrido, alteracao, baixa, PDF | sandbox e swagger |
 | Sicredi (748) | `sicredi` | Cobranca v2 | hibrido, alteracao, baixa, webhook | publica e terceiros |
@@ -47,7 +48,7 @@ metodo de classe `instrucoes_da_config(ajustes)` responde pelas configuracoes pu
 sem segredo (o Bradesco com `hibrido` nao protesta nem negativa). Hoje: prorrogacao, abatimento e baixa em
 Asaas, Banrisul, BB, BTG, Caixa e Sicredi; mais protesto em Itau (com `dias_protesto`),
 Santander e Sicoob; Bradesco tambem negativa (protesto e negativacao so sem QR Code); C6 so
-prorroga e baixa; Unicred so baixa; Inter, PinBank, Safra e o Pix nenhuma.
+prorroga e baixa; Safrapay prorroga e baixa o boleto e so baixa o Pix; Unicred so baixa; Inter, PinBank, Safra e o Pix nenhuma.
 
 Pix (BACEN `/cob`, `/cobv`, `/webhook`) por um adapter generico, `pix_bacen`, com um perfil por PSP
 (host, escopos, headers e quirks): Inter, Banco do Brasil, Sicoob, Sicredi, Itau, Bradesco,
@@ -93,6 +94,7 @@ fonte oficial nao basta.
 | Unicred | W | W | W | W | W | W | C, W | Paginas do portal (`docs/unicred-duvidas.md`): webhook `pagamento`, `credito`, `tarifa`, `codigoSituacao`; consulta `motivo` |
 | Pix BACEN | C, W | - | - | C, W | C, W | C, W | C | `openapi.yaml` da API Pix do BACEN (`pix[].componentesValor`, status `REMOVIDA_*`) |
 | Asaas | - | C, W | - | C, W | - | - | - | OpenAPI v3 (`creditDate`, `interestValue`) |
+| Safrapay | C, W | - | - | - | - | - | C (Pix expirado) | Portal de desenvolvedores (`paymentType` 4 boleto sem QR e 8 Pix; `Expired` do Pix) |
 
 Sem detalhe: Itau (a especificacao exige login; so ha fonte de terceiros), Caixa (os textos de
 situacao vem do ACBr e `CANAL_PAGAMENTO` e texto livre sem dominio no XSD), BTG (sem tabela de
