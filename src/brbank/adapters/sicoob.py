@@ -174,6 +174,7 @@ def _pessoa(pessoa: Pessoa, *, papel: str) -> dict[str, Any]:
 
 class SicoobAdapter(BankAdapter):
     banco: ClassVar[str] = "sicoob"
+    nome_exibicao: ClassVar[str] = "Sicoob (756)"
     validado_sandbox: ClassVar[bool] = True
     capacidades: ClassVar[Capacidade] = (
         Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA | Capacidade.PDF

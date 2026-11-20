@@ -285,6 +285,8 @@ def _pessoa(pessoa: Pessoa, *, papel: str, exigir_endereco: bool) -> dict[str, A
 
 class ItauAdapter(BankAdapter):
     banco: ClassVar[str] = "itau"
+    nome_exibicao: ClassVar[str] = "Itaú (341)"
+    digitos_nosso_numero: ClassVar[int | None] = 8
     validado_sandbox: ClassVar[bool] = False
     # HIBRIDO e EMISSAO_ASSINCRONA (o 202 do Bolecode) so valem com `bolecode=True`:
     # a instancia ajusta em __init__.

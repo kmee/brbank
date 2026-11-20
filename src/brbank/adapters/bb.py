@@ -280,6 +280,8 @@ def _pagador(pessoa: Pessoa) -> dict[str, Any]:
 
 class BancoDoBrasilAdapter(BankAdapter):
     banco: ClassVar[str] = "bb"
+    nome_exibicao: ClassVar[str] = "Banco do Brasil (001)"
+    digitos_nosso_numero: ClassVar[int | None] = 10
     capacidades: ClassVar[Capacidade] = Capacidade.ALTERACAO | Capacidade.BAIXA
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
     instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset(

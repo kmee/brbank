@@ -374,6 +374,7 @@ def _data_dda(valor: Any) -> date | None:
 
 class BtgAdapter(BankAdapter, AdapterDda):
     banco: ClassVar[str] = "btg"
+    nome_exibicao: ClassVar[str] = "BTG Pactual (208)"
     validado_sandbox: ClassVar[bool] = False
     capacidades_dda: ClassVar[CapacidadeDda] = (
         CapacidadeDda.ATIVACAO

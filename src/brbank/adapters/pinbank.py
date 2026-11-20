@@ -131,6 +131,7 @@ def _sacado(pessoa: Pessoa) -> dict[str, Any]:
 
 class PinbankAdapter(BankAdapter):
     banco: ClassVar[str] = "pinbank"
+    nome_exibicao: ClassVar[str] = "PinBank"
     capacidades: ClassVar[Capacidade] = Capacidade.BAIXA | Capacidade.EMISSAO_ASSINCRONA
     tabela_status: ClassVar[TabelaStatus] = TABELA_STATUS
     instrucoes: ClassVar[frozenset[TipoInstrucao]] = frozenset()

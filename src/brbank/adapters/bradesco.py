@@ -429,6 +429,8 @@ def _indicador(pessoa: Pessoa) -> int:
 
 class BradescoAdapter(BankAdapter):
     banco: ClassVar[str] = "bradesco"
+    nome_exibicao: ClassVar[str] = "Bradesco (237)"
+    digitos_nosso_numero: ClassVar[int | None] = 11
     validado_sandbox: ClassVar[bool] = False
     # HIBRIDO e WEBHOOK dependem da config: a instancia remove o que nao se aplica.
     # Sem PDF: a API nao tem. Protesto e negativacao entram em `enviar_instrucao`.

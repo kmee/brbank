@@ -338,6 +338,8 @@ def _endereco(pessoa: Pessoa) -> list[No]:
 
 class CaixaAdapter(BankAdapter):
     banco: ClassVar[str] = "caixa"
+    nome_exibicao: ClassVar[str] = "Caixa (104)"
+    digitos_nosso_numero: ClassVar[int | None] = 15
     validado_sandbox: ClassVar[bool] = False
     capacidades: ClassVar[Capacidade] = (
         Capacidade.HIBRIDO | Capacidade.ALTERACAO | Capacidade.BAIXA

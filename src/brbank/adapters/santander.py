@@ -406,6 +406,9 @@ def _fora_da_instancia(config: SantanderConfig) -> Capacidade:
 
 class SantanderAdapter(BankAdapter):
     banco: ClassVar[str] = "santander"
+    nome_exibicao: ClassVar[str] = "Santander (033)"
+    # A API aceita ate 13 digitos; 12 mantem a numeracao do CNAB (12 + DV).
+    digitos_nosso_numero: ClassVar[int | None] = 12
     validado_sandbox: ClassVar[bool] = False
     # A instancia remove o que a config e o ambiente nao permitem: ver `__init__`.
     capacidades: ClassVar[Capacidade] = (

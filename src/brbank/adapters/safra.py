@@ -232,6 +232,8 @@ def _pagador(pessoa: Pessoa) -> dict[str, Any]:
 
 class SafraAdapter(BankAdapter):
     banco: ClassVar[str] = "safra"
+    nome_exibicao: ClassVar[str] = "Safra (422)"
+    digitos_nosso_numero: ClassVar[int | None] = 9
     # So registro e consulta: baixa, alteracao, PDF e webhook sem contrato
     # publico (ver docs/safra-duvidas.md).
     capacidades: ClassVar[Capacidade] = Capacidade.NENHUMA

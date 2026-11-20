@@ -115,6 +115,8 @@ class PerfilPsp:
     alias_resposta: Mapping[str, str] = field(default_factory=dict)
     observacoes: tuple[str, ...] = ()
     validado_sandbox: bool = False
+    # Nome para telas (ex.: "Banco Inter"); vazio: quem exibe usa `nome`.
+    nome_exibicao: str = ""
 
     def url_base(self, ambiente: str) -> str:
         return self.url_sandbox if ambiente == "sandbox" else self.url_producao
@@ -139,6 +141,7 @@ _SANTANDER_SANDBOX = "https://pix.santander.com.br/api/v1/sandbox"
 _PERFIS = (
     PerfilPsp(
         nome="inter",
+        nome_exibicao="Banco Inter",
         url_sandbox="https://cdpj-sandbox.partners.uatinter.co/pix/v2",
         url_producao="https://cdpj.partners.bancointer.com.br/pix/v2",
         url_token_sandbox="https://cdpj-sandbox.partners.uatinter.co/oauth/v2/token",
@@ -146,6 +149,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="bb",
+        nome_exibicao="Banco do Brasil",
         url_sandbox="https://api.hm.bb.com.br" + _BB_V2,
         url_producao="https://api-pix.bb.com.br" + _BB_V2,
         url_token_sandbox="https://oauth.hm.bb.com.br/oauth/token",
@@ -165,6 +169,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="sicoob",
+        nome_exibicao="Sicoob",
         url_sandbox="https://sandbox.sicoob.com.br/sicoob/sandbox/pix/api/v2",
         url_producao="https://api.sicoob.com.br/pix/api/v2",
         url_token_sandbox="",
@@ -185,6 +190,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="sicredi",
+        nome_exibicao="Sicredi",
         url_sandbox="https://api-pix-h.sicredi.com.br/api/v2",
         url_producao="https://api-pix.sicredi.com.br/api/v2",
         url_token_sandbox="https://api-pix-h.sicredi.com.br/oauth/token",
@@ -193,6 +199,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="itau",
+        nome_exibicao="Itaú",
         url_sandbox=(
             "https://devportal.itau.com.br/sandboxapi/pix_recebimentos_ext_v2/v2"
         ),
@@ -206,6 +213,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="bradesco",
+        nome_exibicao="Bradesco",
         # Catalogo do Bradesco Developers (Pix - geracao de QR Code 1.2.3) e manual do
         # token Pix 2.0.0 (06/07/2026): sandbox no host unico do banco, credenciais no
         # formulario, mTLS nos dois ambientes.
@@ -223,6 +231,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="santander",
+        nome_exibicao="Santander",
         url_sandbox=_SANTANDER_SANDBOX,
         url_producao="https://trust-pix.santander.com.br/api/v1",
         url_token_sandbox="https://pix.santander.com.br/sandbox/oauth/token"
@@ -237,6 +246,7 @@ _PERFIS = (
     ),
     PerfilPsp(
         nome="efi",
+        nome_exibicao="Efí",
         url_sandbox="https://pix-h.api.efipay.com.br/v2",
         url_producao="https://pix.api.efipay.com.br/v2",
         url_token_sandbox="https://pix-h.api.efipay.com.br/oauth/token",
@@ -370,6 +380,7 @@ def _devedor(pessoa: Pessoa, *, com_endereco: bool) -> dict[str, Any]:
 
 class PixBacenAdapter(BankAdapter):
     banco: ClassVar[str] = "pix_bacen"
+    nome_exibicao: ClassVar[str] = "Pix (API do BACEN)"
     capacidades: ClassVar[Capacidade] = (
         Capacidade.PIX_COB | Capacidade.PIX_COBV | Capacidade.WEBHOOK | Capacidade.BAIXA
     )

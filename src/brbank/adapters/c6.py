@@ -242,6 +242,7 @@ def _instrucoes(mensagens: tuple[str, ...]) -> list[str]:
 
 class C6Adapter(BankAdapter):
     banco: ClassVar[str] = "c6"
+    nome_exibicao: ClassVar[str] = "C6 Bank (336)"
     validado_sandbox: ClassVar[bool] = False
     # Sem SO_HIBRIDO: a v2 do C6 emite boleto sem Pix quando a chave falta, e a v1
     # e so boleto. O adapter sempre pede o Pix (chave_pix obrigatoria).

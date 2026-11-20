@@ -141,6 +141,7 @@ def _pessoa(pessoa: Pessoa, *, papel: str, com_email: bool = False) -> dict:
 
 class InterAdapter(BankAdapter):
     banco: ClassVar[str] = "inter"
+    nome_exibicao: ClassVar[str] = "Banco Inter (077)"
     capacidades: ClassVar[Capacidade] = (
         Capacidade.HIBRIDO
         | Capacidade.SO_HIBRIDO

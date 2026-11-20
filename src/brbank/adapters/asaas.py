@@ -321,6 +321,7 @@ def _cliente_payload(pessoa: Pessoa, desligar_notificacoes: bool) -> dict[str, A
 
 class AsaasAdapter(BankAdapter, AdapterRecorrencia):
     banco: ClassVar[str] = "asaas"
+    nome_exibicao: ClassVar[str] = "Asaas"
     # Hibrido depende de a conta ter chave Pix cadastrada (o adapter nao
     # enxerga isso): sem chave, o QR vem vazio e o boleto segue sem Pix.
     capacidades: ClassVar[Capacidade] = (
