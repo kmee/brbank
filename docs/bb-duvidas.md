@@ -67,9 +67,12 @@ traz `codigoEstadoTituloCobranca` 1 para o titulo novo e todos os campos que o a
     `numeroContratoCobranca`; o adapter devolve `BAIXADO` direto. A consulta logo depois
     ainda mostra o estado 1; minutos depois vem o 7 (BAIXADO) com `codigoTipoBaixaTitulo` 1.
     Quem precisa do estado do banco reconsulta depois.
-14. **Alteracao (PATCH).** Implementados: nova data de vencimento e abatimento. Cancelar
-    abatimento, desconto, juros, multa, valor nominal, protesto e negativacao ficaram fora.
-    PROTESTO e NEGATIVACAO levantam `NaoSuportado`.
+14. **Alteracao (PATCH).** Implementados: nova data de vencimento, abatimento e protesto
+    (`indicadorProtestar` com `protesto.quantidadeDiasProtesto`, os dias vindos de
+    `BBConfig.dias_protesto`; sem eles o protesto nao e oferecido e levanta `NaoSuportado`).
+    Os nomes seguem o mesmo esquema do PATCH ja validado para o abatimento; o protesto ainda
+    nao rodou na homologacao. Cancelar abatimento, desconto, juros, multa, valor nominal,
+    sustar ou cancelar protesto e negativacao ficaram fora; NEGATIVACAO levanta `NaoSuportado`.
 15. **PDF.** Nao ha endpoint de segunda via; `PDF` nao e declarada.
 16. **Webhook.** O BB tem webhook de baixa operacional, mas a homologacao nao dispara
     liquidacao real. `parse_webhook` levanta `NaoSuportado`.
