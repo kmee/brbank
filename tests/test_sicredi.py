@@ -166,6 +166,51 @@ async def test_trunca_campos_longos(dormir):
 
 
 @pytest.mark.parametrize(
+    "logradouro, numero, complemento, esperado",
+    [
+        ("Rua 1131", "S/N", "Qd 5 Lt 3", "Rua 1131,S/N Qd 5 Lt 3"),
+        ("Rua das Flores", "10", "", "Rua das Flores,10"),
+        ("Rua das Flores", "10", "   ", "Rua das Flores,10"),
+        # Complemento longo: cortado no que sobra, numero inteiro.
+        (
+            "Avenida Brasil",
+            "1500",
+            "Bloco B Apartamento 1203 Torre Norte",
+            "Avenida Brasil,1500 Bloco B Apartamento",
+        ),
+        # Logradouro tem prioridade: sem sobra, o complemento nao entra.
+        ("L" * 60, "123", "Sala 2", "L" * 36 + ",123"),
+        # Sobra de uma posicao so cabe o espaco: o complemento fica de fora.
+        ("L" * 35, "123", "Sala 2", "L" * 35 + ",123"),
+    ],
+)
+async def test_endereco_com_complemento(
+    dormir, logradouro, numero, complemento, esperado
+):
+    adapter, falso = montar(dormir)
+    pagador = Pessoa(
+        nome="Ana",
+        documento=CPF_VALIDO,
+        endereco=Endereco(
+            logradouro=logradouro,
+            numero=numero,
+            complemento=complemento,
+            bairro="Centro",
+            cidade="Goiania",
+            uf="GO",
+            cep="74000000",
+        ),
+    )
+    await adapter.registrar_titulo(
+        fazer_titulo().model_copy(update={"pagador": pagador})
+    )
+    enviado = falso.ultimo_corpo["pagador"]["endereco"]
+    assert enviado == esperado
+    assert len(enviado) <= 40
+    assert f",{numero}" in enviado
+
+
+@pytest.mark.parametrize(
     "encargos, titulo_extra",
     [
         ({"abatimento": Decimal("1")}, {}),

@@ -87,7 +87,11 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
 5. **Abatimento no registro** e **baixa automatica**: a V2 do ACBr nao envia;
    recusados. Abatimento existe como instrucao (`conceder-abatimento`).
 6. **Valores como numero JSON** (float na fronteira, 2 casas), como o ACBr.
-7. **Endereco.** `endereco` = `logradouro,numero` em 40 posicoes (logradouro cortado);
+7. **Endereco.** `endereco` = `logradouro,numero complemento` em 40 posicoes: o numero
+   nunca e cortado, o logradouro e cortado para caber o numero e o complemento entra so no
+   que sobrar (e o unico cortado depois). O manual 3.9 (p. 22-23) confirma que o pagador so
+   tem `endereco` (40), `cidade` (40), `uf` e `cep`, sem complemento nem bairro; em producao
+   (26/11/2026) o endereco saia sem o complemento. Bairro fica de fora;
    cidade 25, nome 40, email 40, mensagens 4 x 80: limites do ACBr, que trunca em
    silencio (o adapter tambem). Telefone nao existe no modelo canonico.
 8. **CNPJ alfanumerico**: o Sicredi aceita? Enviado como esta em `documento`.

@@ -232,13 +232,20 @@ def _pagador(pessoa: Pessoa) -> dict[str, Any]:
         raise Validacao("pagador sem endereco: o Sicredi exige o endereco")
     logradouro = endereco.logradouro.strip()
     numero = endereco.numero.strip()
+    complemento = endereco.complemento.strip()
     # O ACBr envia "logradouro,numero" em 40 posicoes, cortando o logradouro.
+    # O pagador nao tem campo de complemento nem de bairro (manual 3.9, p. 22-23):
+    # o complemento vai depois do numero so no que sobrar, e e o unico cortado.
     sobra = _MAX_ENDERECO - (len(numero) + 1)
+    linha = f"{logradouro[:sobra]},{numero}"
+    resto = _MAX_ENDERECO - len(linha) - 1
+    if complemento and resto > 0:
+        linha = f"{linha} {complemento[:resto].rstrip()}"
     dados: dict[str, Any] = {
         "tipoPessoa": "PESSOA_FISICA" if pessoa.tipo == "FISICA" else "PESSOA_JURIDICA",
         "documento": pessoa.documento,
         "nome": pessoa.nome[:_MAX_NOME],
-        "endereco": f"{logradouro[:sobra]},{numero}",
+        "endereco": linha,
         "cidade": endereco.cidade[:_MAX_CIDADE],
         "uf": endereco.uf,
         "cep": endereco.cep,
