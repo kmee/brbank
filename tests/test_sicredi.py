@@ -167,7 +167,6 @@ async def test_trunca_campos_longos(dormir):
 @pytest.mark.parametrize(
     "encargos, titulo_extra",
     [
-        ({"juros_mensal_percentual": Decimal("1")}, {}),
         ({"abatimento": Decimal("1")}, {}),
         ({}, {"dias_baixa_automatica": 30}),
     ],
@@ -180,6 +179,46 @@ async def test_recusa_contrato_incerto(dormir, encargos, titulo_extra):
     with pytest.raises(Validacao):
         await adapter.registrar_titulo(titulo)
     assert falso.chamadas == []
+
+
+async def test_juros_percentual_ao_mes(dormir):
+    adapter, falso = montar(dormir)
+    titulo = fazer_titulo().model_copy(
+        update={
+            "encargos": Encargos(
+                multa_percentual=Decimal("2"), juros_mensal_percentual=Decimal("1.5")
+            )
+        }
+    )
+    await adapter.registrar_titulo(titulo)
+    corpo = falso.ultimo_corpo
+    assert corpo["tipoJuros"] == "PERCENTUAL"
+    assert corpo["tipoJurosPercentual"] == "MENSAL"
+    assert corpo["juros"] == 1.5
+    assert corpo["multa"] == 2.0
+    # Com as datas de inicio o boleto sairia sem QR Code (manual 3.9).
+    assert "dataInicioJuros" not in corpo
+    assert "dataInicioMulta" not in corpo
+
+
+async def test_sem_juros_nao_envia_campos_de_juros(dormir):
+    adapter, falso = montar(dormir)
+    await adapter.registrar_titulo(fazer_titulo())
+    corpo = falso.ultimo_corpo
+    for campo in ("tipoJuros", "tipoJurosPercentual", "juros", "dataInicioJuros"):
+        assert campo not in corpo
+
+
+async def test_consulta_aceita_tipo_juros_com_prefixo(dormir):
+    # Formato visto em producao (27/11/2026) para titulo sem juros.
+    adapter, falso = montar(dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo())
+    falso.boletos[reg.id_banco].update(
+        {"tipoJuros": "A - VALOR", "tipoJurosPercentual": "DIARIO", "juros": 0}
+    )
+    consultado = await adapter.consultar_titulo(reg.id_banco)
+    assert consultado.status is StatusCanonico.REGISTRADO
+    assert consultado.resposta_bruta["tipoJuros"] == "A - VALOR"
 
 
 async def test_pagador_sem_endereco_e_recusado(dormir):

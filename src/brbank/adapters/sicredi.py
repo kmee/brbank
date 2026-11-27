@@ -12,7 +12,11 @@ Escolhas deliberadas:
   (ano, byte e DV) nao esta confirmada. Quem fica com o `nossoNumero` e o banco,
   devolvido no registro e usado como `id_banco`.
 - O que o titulo nao traz nao e enviado, e o que tem contrato incerto
-  (juros, abatimento no registro, baixa automatica) e recusado com `Validacao`.
+  (abatimento no registro, baixa automatica) e recusado com `Validacao`.
+- Juros pelo Manual API da Cobranca Sicredi 3.9 (p. 28-29): `tipoJuros`
+  PERCENTUAL, `tipoJurosPercentual` MENSAL e `juros` com o percentual ao mes.
+  Sem `dataInicioJuros`/`dataInicioMulta`: com elas o boleto sai sempre
+  tradicional, sem QR Code; sem elas o banco conta do dia seguinte ao vencimento.
 - Status desconhecido levanta `Validacao`, nunca vira "pago".
 - A consulta e a fonte da verdade: baixa e instrucao devolvem o estado consultado.
 - `ECOMM` (autenticacao por `token`/`chaveTransacao`, nao OAuth2) ficou fora.
@@ -289,10 +293,9 @@ class SicrediAdapter(BankAdapter):
 
     def _montar_payload(self, titulo: Titulo) -> dict[str, Any]:
         enc = titulo.encargos
-        # Contrato incerto: a unidade do juros nao esta confirmada, o abatimento
-        # so tem rota de instrucao e a V2 nao tem baixa automatica no registro.
+        # Contrato incerto: o abatimento so tem rota de instrucao e a V2 nao tem
+        # baixa automatica no registro.
         for nome, valor in (
-            ("juros", enc.juros_mensal_percentual),
             ("abatimento", enc.abatimento),
             ("baixa automatica", titulo.dias_baixa_automatica),
         ):
@@ -312,6 +315,12 @@ class SicrediAdapter(BankAdapter):
         }
         if enc.multa_percentual is not None:
             payload["multa"] = _numero(enc.multa_percentual)
+        if enc.juros_mensal_percentual is not None:
+            # Manual 3.9: `tipoJurosPercentual` so vale com PERCENTUAL. Sem
+            # `dataInicioJuros` de proposito (ver docstring do modulo).
+            payload["tipoJuros"] = "PERCENTUAL"
+            payload["tipoJurosPercentual"] = "MENSAL"
+            payload["juros"] = _numero(enc.juros_mensal_percentual)
         if enc.desconto_percentual is not None:
             limite = titulo.vencimento - timedelta(days=enc.desconto_dias_antes or 0)
             payload["tipoDesconto"] = "PERCENTUAL"

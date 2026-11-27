@@ -71,8 +71,16 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
    forum). Nao confirmado se o banco gera quando omitido. O adapter nao envia; se o
    sandbox exigir, falta a formula (ano, byte de geracao, DV modulo 11) e o controle
    da sequencia, que e do chamador.
-3. **Unidade do juros** (`tipoJuros` VALOR/PERCENTUAL, `juros`): ao dia ou ao mes?
-   Recusado com `Validacao`. O ACBr repassa `ValorMoraJuros` cru.
+3. **Juros.** Resolvida pelo Manual API da Cobranca Sicredi 3.9 (11/11/2025, p. 28-29):
+   `tipoJuros` VALOR ou PERCENTUAL, `tipoJurosPercentual` DIARIO ou MENSAL (so com
+   PERCENTUAL) e `juros` numero 14,2. Desde a validacao em producao (27/11/2026)
+   o adapter envia `Encargos.juros_mensal_percentual` como PERCENTUAL/MENSAL. Nao envia
+   `dataInicioJuros` nem `dataInicioMulta`: o manual diz que com elas o boleto sai sempre
+   tradicional, sem QR Code; sem elas o banco conta a partir do dia seguinte ao vencimento.
+   Antes, juros era recusado com `Validacao` e nenhum boleto com juros registrava. A
+   consulta devolve os campos com prefixo (`"tipoJuros": "A - VALOR"`,
+   `"tipoJurosPercentual": "DIARIO"`, `"juros": 0` num titulo sem juros); o adapter nao os
+   le, ficam so na `resposta_bruta`.
 4. **Multa** enviada como percentual (`multa`, como o `PercentualMulta` do ACBr).
    **Desconto** enviado como `tipoDesconto=PERCENTUAL`, `valorDesconto1` e
    `dataDesconto1 = vencimento - dias`; semantica do percentual nao confirmada.
