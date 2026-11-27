@@ -97,7 +97,12 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
     primeiros caracteres). Se vier fora disso, `valor_pago` fica nulo.
 11. **Baixa.** Responde `statusComando`/`transactionId`/`tipoMensagem`: parece comando
     assincrono. O adapter reconsulta e devolve o estado (pode ainda nao ser `BAIXADO`).
-    Nao declaramos `INSTRUCAO_ASSINCRONA`; revisar com o sandbox.
+    Nao declaramos `INSTRUCAO_ASSINCRONA`; revisar com o sandbox. Em producao
+    (27/11/2026) a baixa logo depois do registro voltou HTTP 422 "0075 - Instrucao invalida:
+    titulo esta aguardando confirmacao" e passou numa segunda tentativa; desde entao o 0075
+    na instrucao (ou na consulta) vira `Indisponivel` (retryable), como o 4923876 do BB. O
+    formato do corpo de erro nao esta documentado: o adapter procura o codigo no inicio de
+    qualquer texto do corpo. O registro nao passa por essa regra.
 12. **Registro sincrono?** A resposta traz linha digitavel e codigo de barras, entao
     devolvemos `REGISTRADO`. Nao declaramos `EMISSAO_ASSINCRONA`.
 13. **PDF.** Resolvida: `GET /boletos/pdf?linhaDigitavel=` (OpenAPI 3.9.1). No sandbox vem o

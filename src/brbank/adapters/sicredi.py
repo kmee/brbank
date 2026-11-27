@@ -18,12 +18,16 @@ Escolhas deliberadas:
   Sem `dataInicioJuros`/`dataInicioMulta`: com elas o boleto sai sempre
   tradicional, sem QR Code; sem elas o banco conta do dia seguinte ao vencimento.
 - Status desconhecido levanta `Validacao`, nunca vira "pago".
+- Instrucao recusada com o codigo 0075 ("titulo esta aguardando confirmacao",
+  HTTP 422, visto em producao logo depois do registro) vira `Indisponivel`:
+  repetir depois funciona, como o 4923876 do BB.
 - A consulta e a fonte da verdade: baixa e instrucao devolvem o estado consultado.
 - `ECOMM` (autenticacao por `token`/`chaveTransacao`, nao OAuth2) ficou fora.
 """
 
 import asyncio
 import json
+import re
 import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -38,7 +42,7 @@ from brbank._compat import datetime_iso
 from brbank.adapter import BankAdapter
 from brbank.auth import OAuth2Password
 from brbank.capacidades import Capacidade
-from brbank.erros import NaoSuportado, Validacao
+from brbank.erros import Indisponivel, NaoSuportado, Validacao
 from brbank.mascara import mascarar
 from brbank.modelos import (
     CanalLiquidacao,
@@ -58,6 +62,13 @@ URL_SANDBOX = "https://api-parceiro.sicredi.com.br/sb"
 CAMINHO_TOKEN = "/auth/openapi/token"
 CAMINHO_BOLETOS = "/cobranca/boleto/v1/boletos"
 ESCOPO_PADRAO = "cobranca"
+
+# Instrucao recusada com o titulo recem-registrado ("0075 - Instrucao invalida:
+# titulo esta aguardando confirmacao", HTTP 422, producao em 27/11/2026): repetir
+# depois funciona, entao vira Indisponivel e nao Validacao. O formato do corpo de
+# erro nao esta documentado: vale o codigo no inicio de qualquer texto do corpo.
+CODIGO_AGUARDANDO_CONFIRMACAO = "0075"
+_AGUARDANDO_CONFIRMACAO = re.compile(rf"^\s*{CODIGO_AGUARDANDO_CONFIRMACAO}\b")
 
 # Limites de tamanho que o ACBr aplica antes de enviar (truncar e o que ele faz).
 _MAX_NOME = 40
@@ -205,6 +216,16 @@ def _normalizar(texto: Any) -> str:
     return " ".join(sem_acento.upper().split())
 
 
+def _aguardando_confirmacao(bruto: Any) -> bool:
+    if isinstance(bruto, dict):
+        return any(_aguardando_confirmacao(v) for v in bruto.values())
+    if isinstance(bruto, list | tuple):
+        return any(_aguardando_confirmacao(v) for v in bruto)
+    if isinstance(bruto, str):
+        return bool(_AGUARDANDO_CONFIRMACAO.match(bruto))
+    return False
+
+
 def _pagador(pessoa: Pessoa) -> dict[str, Any]:
     endereco = pessoa.endereco
     if endereco is None:
@@ -346,6 +367,25 @@ class SicrediAdapter(BankAdapter):
             )
         return dados
 
+    async def _requisitar(
+        self, metodo: str, caminho: str, *, operacao: str, **kw: Any
+    ) -> httpx.Response:
+        # Instrucao e consulta; o registro chama o transporte direto e nao passa
+        # pelo 0075.
+        try:
+            return await self._transporte.requisitar(
+                metodo, caminho, operacao=operacao, escopo=ESCOPO_PADRAO, **kw
+            )
+        except Validacao as exc:
+            if _aguardando_confirmacao(exc.resposta_bruta):
+                raise Indisponivel(
+                    "sicredi: titulo aguardando confirmacao do registro (0075), "
+                    "repetir depois",
+                    status_http=exc.status_http,
+                    resposta_bruta=exc.resposta_bruta,
+                ) from exc
+            raise
+
     async def registrar_titulo(self, titulo: Titulo) -> TituloRegistrado:
         chave = titulo.chave_idempotencia
         trava = self._travas.setdefault(chave, asyncio.Lock())
@@ -390,11 +430,10 @@ class SicrediAdapter(BankAdapter):
                 "nossoNumero": id_banco,
             }
         )
-        resp = await self._transporte.requisitar(
+        resp = await self._requisitar(
             "GET",
             f"{CAMINHO_BOLETOS}?{consulta}",
             operacao="consultar",
-            escopo=ESCOPO_PADRAO,
             cabecalhos=self._cabecalhos(),
         )
         dados = self._json(resp)
@@ -464,11 +503,10 @@ class SicrediAdapter(BankAdapter):
     async def _patch(
         self, id_banco: str, sufixo: str, operacao: str, corpo: dict[str, Any]
     ) -> None:
-        await self._transporte.requisitar(
+        await self._requisitar(
             "PATCH",
             f"{CAMINHO_BOLETOS}/{id_banco}/{sufixo}",
             operacao=operacao,
-            escopo=ESCOPO_PADRAO,
             json=corpo,
             cabecalhos=self._cabecalhos(com_beneficiario=True),
         )

@@ -10,6 +10,7 @@ from brbank import (
     Capacidade,
     Encargos,
     Endereco,
+    Indisponivel,
     Instrucao,
     NaoSuportado,
     Pessoa,
@@ -381,6 +382,72 @@ async def test_instrucao_baixa_delega(dormir):
         reg.id_banco, Instrucao(chave_idempotencia="i", tipo=TipoInstrucao.BAIXA)
     )
     assert r.status is StatusCanonico.BAIXADO
+
+
+def _recusa_0075(falso: SicrediFalso, corpo):
+    def tratar(request):
+        if request.method == "PATCH":
+            falso.chamadas.append((request.method, request.url.path))
+            return httpx.Response(422, json=corpo)
+        return falso.tratar(request)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(tratar))
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        {
+            "code": "422",
+            "message": "0075 - Instrução inválida: título está aguardando confirmação",
+        },
+        {"codigo": "0075", "mensagem": "Instrucao invalida"},
+        {"erros": [{"mensagem": "0075 - Instrucao invalida"}]},
+    ],
+)
+async def test_instrucao_aguardando_confirmacao_e_indisponivel(dormir, corpo):
+    falso = SicrediFalso("/sb")
+    adapter = SicrediAdapter(config(), client=_recusa_0075(falso, corpo), dormir=dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo())
+    with pytest.raises(Indisponivel, match="0075") as erro:
+        await adapter.enviar_instrucao(
+            reg.id_banco, Instrucao(chave_idempotencia="i", tipo=TipoInstrucao.BAIXA)
+        )
+    assert erro.value.retryable
+    assert erro.value.status_http == 422
+    # Uma tentativa so: quem repete e o chamador (cron), nao o transporte.
+    patches = [c for c in falso.chamadas if c[0] == "PATCH"]
+    assert len(patches) == 1
+
+
+async def test_outra_recusa_de_instrucao_segue_validacao(dormir):
+    falso = SicrediFalso("/sb")
+    corpo = {"code": "422", "message": "0076 - Data de vencimento invalida 0075"}
+    adapter = SicrediAdapter(config(), client=_recusa_0075(falso, corpo), dormir=dormir)
+    reg = await adapter.registrar_titulo(fazer_titulo())
+    with pytest.raises(Validacao) as erro:
+        await adapter.enviar_instrucao(
+            reg.id_banco,
+            Instrucao(
+                chave_idempotencia="i",
+                tipo=TipoInstrucao.PRORROGACAO,
+                nova_data_vencimento=date(2027, 1, 5),
+            ),
+        )
+    assert not isinstance(erro.value, Indisponivel)
+
+
+async def test_registro_recusado_com_0075_segue_validacao(dormir):
+    def tratar(request):
+        if "token" in request.url.path:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 300})
+        return httpx.Response(422, json={"message": "0075 - qualquer coisa"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(tratar))
+    adapter = SicrediAdapter(config(), client=client, dormir=dormir)
+    with pytest.raises(Validacao) as erro:
+        await adapter.registrar_titulo(fazer_titulo())
+    assert not isinstance(erro.value, Indisponivel)
 
 
 @pytest.mark.parametrize(
