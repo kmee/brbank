@@ -71,15 +71,27 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
    forum). Nao confirmado se o banco gera quando omitido. O adapter nao envia; se o
    sandbox exigir, falta a formula (ano, byte de geracao, DV modulo 11) e o controle
    da sequencia, que e do chamador.
-3. **Unidade do juros** (`tipoJuros` VALOR/PERCENTUAL, `juros`): ao dia ou ao mes?
-   Recusado com `Validacao`. O ACBr repassa `ValorMoraJuros` cru.
+3. **Juros.** Resolvida pelo Manual API da Cobranca Sicredi 3.9 (11/11/2025, p. 28-29):
+   `tipoJuros` VALOR ou PERCENTUAL, `tipoJurosPercentual` DIARIO ou MENSAL (so com
+   PERCENTUAL) e `juros` numero 14,2. Desde a validacao em producao (27/11/2026)
+   o adapter envia `Encargos.juros_mensal_percentual` como PERCENTUAL/MENSAL. Nao envia
+   `dataInicioJuros` nem `dataInicioMulta`: o manual diz que com elas o boleto sai sempre
+   tradicional, sem QR Code; sem elas o banco conta a partir do dia seguinte ao vencimento.
+   Antes, juros era recusado com `Validacao` e nenhum boleto com juros registrava. A
+   consulta devolve os campos com prefixo (`"tipoJuros": "A - VALOR"`,
+   `"tipoJurosPercentual": "DIARIO"`, `"juros": 0` num titulo sem juros); o adapter nao os
+   le, ficam so na `resposta_bruta`.
 4. **Multa** enviada como percentual (`multa`, como o `PercentualMulta` do ACBr).
    **Desconto** enviado como `tipoDesconto=PERCENTUAL`, `valorDesconto1` e
    `dataDesconto1 = vencimento - dias`; semantica do percentual nao confirmada.
 5. **Abatimento no registro** e **baixa automatica**: a V2 do ACBr nao envia;
    recusados. Abatimento existe como instrucao (`conceder-abatimento`).
 6. **Valores como numero JSON** (float na fronteira, 2 casas), como o ACBr.
-7. **Endereco.** `endereco` = `logradouro,numero` em 40 posicoes (logradouro cortado);
+7. **Endereco.** `endereco` = `logradouro,numero complemento` em 40 posicoes: o numero
+   nunca e cortado, o logradouro e cortado para caber o numero e o complemento entra so no
+   que sobrar (e o unico cortado depois). O manual 3.9 (p. 22-23) confirma que o pagador so
+   tem `endereco` (40), `cidade` (40), `uf` e `cep`, sem complemento nem bairro; em producao
+   (26/11/2026) o endereco saia sem o complemento. Bairro fica de fora;
    cidade 25, nome 40, email 40, mensagens 4 x 80: limites do ACBr, que trunca em
    silencio (o adapter tambem). Telefone nao existe no modelo canonico.
 8. **CNPJ alfanumerico**: o Sicredi aceita? Enviado como esta em `documento`.
@@ -89,7 +101,12 @@ manual; com ele o sandbox registrou. Valores fixos do sandbox (manual 3.9): coop
     primeiros caracteres). Se vier fora disso, `valor_pago` fica nulo.
 11. **Baixa.** Responde `statusComando`/`transactionId`/`tipoMensagem`: parece comando
     assincrono. O adapter reconsulta e devolve o estado (pode ainda nao ser `BAIXADO`).
-    Nao declaramos `INSTRUCAO_ASSINCRONA`; revisar com o sandbox.
+    Nao declaramos `INSTRUCAO_ASSINCRONA`; revisar com o sandbox. Em producao
+    (27/11/2026) a baixa logo depois do registro voltou HTTP 422 "0075 - Instrucao invalida:
+    titulo esta aguardando confirmacao" e passou numa segunda tentativa; desde entao o 0075
+    na instrucao (ou na consulta) vira `Indisponivel` (retryable), como o 4923876 do BB. O
+    formato do corpo de erro nao esta documentado: o adapter procura o codigo no inicio de
+    qualquer texto do corpo. O registro nao passa por essa regra.
 12. **Registro sincrono?** A resposta traz linha digitavel e codigo de barras, entao
     devolvemos `REGISTRADO`. Nao declaramos `EMISSAO_ASSINCRONA`.
 13. **PDF.** Resolvida: `GET /boletos/pdf?linhaDigitavel=` (OpenAPI 3.9.1). No sandbox vem o
